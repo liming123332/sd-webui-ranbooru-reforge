@@ -3,6 +3,7 @@ import html
 import random
 import requests
 import modules.scripts as scripts
+from modules.scripts import OnComponent
 import gradio as gr
 import os
 from PIL import Image
@@ -667,6 +668,22 @@ def limit_prompt_tags(prompt, limit_tags, mode):
     return ','.join(clean_prompt)
 
 class Script(scripts.Script):
+    def __init__(self):
+        super().__init__()
+        self.prompt_area = [None, None]
+        self.prompt_row = [None, None]
+        self.on_after_component_elem_id = [
+            ("txt2img_prompt_row", lambda x: self.create_prompt_row(0, x)),
+            ("img2img_prompt_row", lambda x: self.create_prompt_row(1, x)),
+            ("txt2img_prompt", lambda x: self.set_prompt_area(0, x)),
+            ("img2img_prompt", lambda x: self.set_prompt_area(1, x)),
+        ]
+
+    def create_prompt_row(self, i2i, component):
+        self.prompt_row[i2i] = gr.Row()
+
+    def set_prompt_area(self, i2i, component):
+        self.prompt_area[i2i] = component.component
     previous_loras = ''
     last_img = []
     real_steps = 0
@@ -768,80 +785,90 @@ class Script(scripts.Script):
         initial_status_value = f"✓ Credentials loaded from: {credentials_manager.credentials_file}" if has_saved else ""
         initial_clear_visible = has_saved
         
-        with InputAccordion(False, label="Ranbooru", elem_id=self.elem_id("ra_enable")) as enabled:
-            booru = gr.Dropdown(
-                ["safebooru", "rule34", "danbooru", "gelbooru", 'aibooru', 'xbooru', 'e621'], label="Booru", value="safebooru")
-            max_pages = gr.Slider(label="Max Pages", minimum=1, maximum=100, value=100, step=1)
-            gr.Markdown("""## Post""")
-            post_id = gr.Textbox(lines=1, label="Post ID")
-            gr.Markdown("""## Tags""")
-            tags = gr.Textbox(lines=1, label="Tags to Search (Pre)")
-            remove_tags = gr.Textbox(lines=1, label="Tags to Remove (Post)")
-            mature_rating = gr.Radio(list(RATINGS['safebooru']), label="Mature Rating", value="All")
-            remove_bad_tags = gr.Checkbox(label="Remove bad tags", value=True)
-            shuffle_tags = gr.Checkbox(label="Shuffle tags", value=True)
-            change_dash = gr.Checkbox(label='Convert "_" to spaces', value=False)
-            same_prompt = gr.Checkbox(label="Use same prompt for all images", value=False)
-            fringe_benefits = gr.Checkbox(label="Fringe Benefits", value=True)            # API credentials for Gelbooru
-            with gr.Group(visible=True) as gelbooru_credentials_group:
-                gr.Markdown("### API Credentials")
-                api_key = gr.Textbox(
-                    lines=1, label="API Key", placeholder="Enter your API key",
-                    type="password", visible=initial_api_key_visible, value=saved_creds.get('api_key', '')
-                )
-                user_id = gr.Textbox(
-                    lines=1, label="User ID", placeholder="Enter your user ID",
-                    visible=initial_user_id_visible, value=saved_creds.get('user_id', '')
-                )
-                save_credentials = gr.Checkbox(label="Save credentials", value=False, visible=True)
-                credentials_status = gr.Textbox(
-                    label="Status", interactive=False,
-                    visible=True, value=initial_status_value
-                )
-                clear_credentials_btn = gr.Button(
-                    "Clear saved credentials", visible=initial_clear_visible
-                )
-            
-            limit_tags = gr.Slider(value=1.0, label="Limit tags", minimum=0.05, maximum=1.0, step=0.05)
-            max_tags = gr.Slider(value=100, label="Max tags", minimum=1, maximum=100, step=1)
-            change_background = gr.Radio(["Don't Change", "Add Background", "Remove Background", "Remove All"], label="Change Background", value="Don't Change")
-            change_color = gr.Radio(["Don't Change", "Colored", "Limited Palette", "Monochrome"], label="Change Color", value="Don't Change")
-            sorting_order = gr.Radio(["Random", "High Score", "Low Score"], label="Sorting Order", value="Random")            
-            booru.change(get_available_ratings, booru, mature_rating)  # update available ratings
-            booru.change(show_fringe_benefits, booru, fringe_benefits)  # display fringe benefits checkbox if gelbooru is selected
-            booru.change(self.show_gelbooru_api_fields, booru, gelbooru_credentials_group)
+        row_container = self.prompt_row[is_img2img] or gr.Row()
+        with row_container:
+            with gr.Column(scale=1, min_width=180):
+                tags = gr.Textbox(lines=1, label="Tags to Search (Pre)")
+                tag_prompt_input = gr.Textbox(lines=3, label="Tag Prompt")
+                generate_prompt_btn = gr.Button("生成提示词")
+            with gr.Column(scale=6):
+                with InputAccordion(False, label="Ranbooru", elem_id=self.elem_id("ra_enable")) as enabled:
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            booru = gr.Dropdown(["safebooru", "rule34", "danbooru", "gelbooru", 'aibooru', 'xbooru', 'e621'], label="Booru", value="safebooru")
+                            max_pages = gr.Slider(label="Max Pages", minimum=1, maximum=100, value=100, step=1)
+                            gr.Markdown("""## Post""")
+                            post_id = gr.Textbox(lines=1, label="Post ID")
+                            gr.Markdown("""## Tags""")
+                            remove_tags = gr.Textbox(lines=1, label="Tags to Remove (Post)")
+                            with gr.Group():
+                                with gr.Box():
+                                    prompt_output = gr.Textbox(lines=4, label="提示词输出")
+                        with gr.Column(scale=1):
+                            mature_rating = gr.Radio(list(RATINGS['safebooru']), label="Mature Rating", value="All")
+                            remove_bad_tags = gr.Checkbox(label="Remove bad tags", value=True)
+                            shuffle_tags = gr.Checkbox(label="Shuffle tags", value=True)
+                            change_dash = gr.Checkbox(label='Convert "_" to spaces', value=False)
+                            same_prompt = gr.Checkbox(label="Use same prompt for all images", value=False)
+                            fringe_benefits = gr.Checkbox(label="Fringe Benefits", value=True)
+                            with gr.Group(visible=True) as gelbooru_credentials_group:
+                                gr.Markdown("### API Credentials")
+                                api_key = gr.Textbox(
+                                    lines=1, label="API Key", placeholder="Enter your API key",
+                                    type="password", visible=initial_api_key_visible, value=saved_creds.get('api_key', '')
+                                )
+                                user_id = gr.Textbox(
+                                    lines=1, label="User ID", placeholder="Enter your user ID",
+                                    visible=initial_user_id_visible, value=saved_creds.get('user_id', '')
+                                )
+                                save_credentials = gr.Checkbox(label="Save credentials", value=False, visible=True)
+                                credentials_status = gr.Textbox(
+                                    label="Status", interactive=False,
+                                    visible=True, value=initial_status_value
+                                )
+                                clear_credentials_btn = gr.Button(
+                                    "Clear saved credentials", visible=initial_clear_visible
+                                )
+                            limit_tags = gr.Slider(value=1.0, label="Limit tags", minimum=0.05, maximum=1.0, step=0.05)
+                            max_tags = gr.Slider(value=100, label="Max tags", minimum=1, maximum=100, step=1)
+                            change_background = gr.Radio(["Don't Change", "Add Background", "Remove Background", "Remove All"], label="Change Background", value="Don't Change")
+                            change_color = gr.Radio(["Don't Change", "Colored", "Limited Palette", "Monochrome"], label="Change Color", value="Don't Change")
+                            sorting_order = gr.Radio(["Random", "High Score", "Low Score"], label="Sorting Order", value="Random")            
+                    booru.change(get_available_ratings, booru, mature_rating)
+                    booru.change(show_fringe_benefits, booru, fringe_benefits)
+                    booru.change(self.show_gelbooru_api_fields, booru, gelbooru_credentials_group)
 
-            gr.Markdown("""\n---\n""")
-            with gr.Group():
-                with gr.Accordion("Img2Img", open=False):
-                    use_img2img = gr.Checkbox(label="Use img2img", value=False)
-                    use_ip = gr.Checkbox(label="Send to Controlnet", value=False)
-                    denoising = gr.Slider(value=0.75, label="Denoising", minimum=0.05, maximum=1.0, step=0.05)
-                    use_last_img = gr.Checkbox(label="Use last image as img2img", value=False)
-                    crop_center = gr.Checkbox(label="Crop Center", value=False)
-                    use_deepbooru = gr.Checkbox(label="Use Deepbooru", value=False)
-                    type_deepbooru = gr.Radio(["Add Before", "Add After", "Replace"], label="Deepbooru Tags Position", value="Add Before")
-            with gr.Group():
-                with gr.Accordion("File", open=False):
-                    use_search_txt = gr.Checkbox(label="Use tags_search.txt", value=False)
-                    choose_search_txt = gr.Dropdown(self.get_files(user_search_dir), label="Choose tags_search.txt", value="")
-                    search_refresh_btn = gr.Button("Refresh")
-                    use_remove_txt = gr.Checkbox(label="Use tags_remove.txt", value=False)
-                    choose_remove_txt = gr.Dropdown(self.get_files(user_remove_dir), label="Choose tags_remove.txt", value="")
-                    remove_refresh_btn = gr.Button("Refresh")
-            with gr.Group():
-                with gr.Accordion("Extra", open=False):
-                    with gr.Box():
-                        mix_prompt = gr.Checkbox(label="Mix prompts", value=False)
-                        mix_amount = gr.Slider(value=2, label="Mix amount", minimum=2, maximum=10, step=1)
-                    with gr.Box():
-                        chaos_mode = gr.Radio(["None", "Chaos", "Less Chaos"], label="Chaos Mode", value="None")
-                        chaos_amount = gr.Slider(value=0.5, label="Chaos Amount %", minimum=0.1, maximum=1, step=0.05)
-                    with gr.Box():
-                        negative_mode = gr.Radio(["None", "Negative"], label="Negative Mode", value="None")
-                        use_same_seed = gr.Checkbox(label="Use same seed for all pictures", value=False)
-                    with gr.Box():
-                        use_cache = gr.Checkbox(label="Use cache", value=True)
+                    gr.Markdown("""\n---\n""")
+                    with gr.Group():
+                        with gr.Accordion("Img2Img", open=False):
+                            use_img2img = gr.Checkbox(label="Use img2img", value=False)
+                            use_ip = gr.Checkbox(label="Send to Controlnet", value=False)
+                            denoising = gr.Slider(value=0.75, label="Denoising", minimum=0.05, maximum=1.0, step=0.05)
+                            use_last_img = gr.Checkbox(label="Use last image as img2img", value=False)
+                            crop_center = gr.Checkbox(label="Crop Center", value=False)
+                            use_deepbooru = gr.Checkbox(label="Use Deepbooru", value=False)
+                            type_deepbooru = gr.Radio(["Add Before", "Add After", "Replace"], label="Deepbooru Tags Position", value="Add Before")
+                    with gr.Group():
+                        with gr.Accordion("File", open=False):
+                            use_search_txt = gr.Checkbox(label="Use tags_search.txt", value=False)
+                            choose_search_txt = gr.Dropdown(self.get_files(user_search_dir), label="Choose tags_search.txt", value="")
+                            search_refresh_btn = gr.Button("Refresh")
+                            use_remove_txt = gr.Checkbox(label="Use tags_remove.txt", value=False)
+                            choose_remove_txt = gr.Dropdown(self.get_files(user_remove_dir), label="Choose tags_remove.txt", value="")
+                            remove_refresh_btn = gr.Button("Refresh")
+                    with gr.Group():
+                        with gr.Accordion("Extra", open=False):
+                            with gr.Box():
+                                mix_prompt = gr.Checkbox(label="Mix prompts", value=False)
+                                mix_amount = gr.Slider(value=2, label="Mix amount", minimum=2, maximum=10, step=1)
+                            with gr.Box():
+                                chaos_mode = gr.Radio(["None", "Chaos", "Less Chaos"], label="Chaos Mode", value="None")
+                                chaos_amount = gr.Slider(value=0.5, label="Chaos Amount %", minimum=0.1, maximum=1, step=0.05)
+                            with gr.Box():
+                                negative_mode = gr.Radio(["None", "Negative"], label="Negative Mode", value="None")
+                                use_same_seed = gr.Checkbox(label="Use same seed for all pictures", value=False)
+                            with gr.Box():
+                                use_cache = gr.Checkbox(label="Use cache", value=True)
         with InputAccordion(False, label="LoRAnado", elem_id=self.elem_id("lo_enable")) as lora_enabled:
             with gr.Box():
                 lora_lock_prev = gr.Checkbox(label="Lock previous LoRAs", value=False)
@@ -877,6 +904,30 @@ class Script(scripts.Script):
             inputs=[booru],
             outputs=[api_key, user_id, credentials_status, clear_credentials_btn]
         )
+
+        target_prompt_box = self.prompt_area[1 if is_img2img else 0]
+        if target_prompt_box is None:
+            try:
+                from modules.ui import txt2img_paste_fields, img2img_paste_fields
+                if is_img2img and img2img_paste_fields and 'prompt' in img2img_paste_fields:
+                    target_prompt_box = img2img_paste_fields['prompt']
+                elif not is_img2img and txt2img_paste_fields and 'prompt' in txt2img_paste_fields:
+                    target_prompt_box = txt2img_paste_fields['prompt']
+            except Exception:
+                target_prompt_box = None
+
+        if target_prompt_box is not None:
+            generate_prompt_btn.click(
+                fn=self.generate_and_set_prompt,
+                inputs=[booru, max_pages, post_id, tags, remove_bad_tags, remove_tags, change_background, change_color, shuffle_tags, change_dash, mix_prompt, mix_amount, use_search_txt, choose_search_txt, use_remove_txt, choose_remove_txt, fringe_benefits, use_cache, api_key, user_id, save_credentials, mature_rating, sorting_order, limit_tags, max_tags, tag_prompt_input, target_prompt_box],
+                outputs=[prompt_output, target_prompt_box]
+            )
+        else:
+            generate_prompt_btn.click(
+                fn=self.generate_prompts_only,
+                inputs=[booru, max_pages, post_id, tags, remove_bad_tags, remove_tags, change_background, change_color, shuffle_tags, change_dash, mix_prompt, mix_amount, use_search_txt, choose_search_txt, use_remove_txt, choose_remove_txt, fringe_benefits, use_cache, api_key, user_id, save_credentials, mature_rating, sorting_order, limit_tags, max_tags],
+                outputs=[prompt_output]
+            )
 
         return [enabled, tags, booru, remove_bad_tags, max_pages, change_dash, same_prompt, fringe_benefits, remove_tags, use_img2img, denoising, use_last_img, change_background, change_color, shuffle_tags, post_id, mix_prompt, mix_amount, chaos_mode, negative_mode, chaos_amount, limit_tags, max_tags, sorting_order, mature_rating, lora_folder, lora_amount, lora_min, lora_max, lora_enabled, lora_custom_weights, lora_lock_prev, use_ip, use_search_txt, use_remove_txt, choose_search_txt, choose_remove_txt, search_refresh_btn, remove_refresh_btn, crop_center, use_deepbooru, type_deepbooru, use_same_seed, use_cache, api_key, user_id, save_credentials, credentials_status, clear_credentials_btn]
 
@@ -1024,7 +1075,7 @@ class Script(scripts.Script):
 
             add_tags = '&tags=-animated'
             if tags:
-                add_tags += f'+{tags.replace(",", "+")}'
+                add_tags += '+' + tags.replace(',', '+')
                 if mature_rating != 'All':
                     add_tags += f'+rating:{RATINGS[booru][mature_rating]}'
 
@@ -1279,10 +1330,173 @@ class Script(scripts.Script):
             processed.infotexts = proc.infotexts
             if use_last_img:
                 processed.images.append(self.last_img[0])
+        else:
+            for num, img in enumerate(self.last_img):
+                processed.images.append(img)
+                processed.infotexts.append(proc.infotexts[num + 1])
+
+    def generate_prompts_only(self, booru, max_pages, post_id, tags, remove_bad_tags, remove_tags, change_background, change_color, shuffle_tags, change_dash, mix_prompt, mix_amount, use_search_txt, choose_search_txt, use_remove_txt, choose_remove_txt, fringe_benefits, use_cache, api_key, user_id, save_credentials, mature_rating, sorting_order, limit_tags, max_tags):
+        if use_cache:
+            if HAS_REQUESTS_CACHE and not requests_cache.patcher.is_installed():
+                requests_cache.install_cache('ranbooru_cache', backend='sqlite', expire_after=3600)
+        else:
+            if HAS_REQUESTS_CACHE and requests_cache.patcher.is_installed():
+                requests_cache.uninstall_cache()
+
+        gelbooru_api_key = None
+        gelbooru_user_id = None
+        rule34_api_key = None
+        rule34_user_id = None
+        if booru == 'gelbooru':
+            if api_key.strip() and user_id.strip():
+                gelbooru_api_key = api_key.strip()
+                gelbooru_user_id = user_id.strip()
+                if save_credentials:
+                    credentials_manager.save_booru_credentials('gelbooru', gelbooru_api_key, gelbooru_user_id)
             else:
-                for num, img in enumerate(self.last_img):
-                    processed.images.append(img)
-                    processed.infotexts.append(proc.infotexts[num + 1])
+                saved_credentials = credentials_manager.get_booru_credentials('gelbooru')
+                gelbooru_api_key = saved_credentials.get('api_key', '')
+                gelbooru_user_id = saved_credentials.get('user_id', '')
+        if booru == 'rule34':
+            if api_key.strip() and user_id.strip():
+                rule34_api_key = api_key.strip()
+                rule34_user_id = user_id.strip()
+                if save_credentials:
+                    credentials_manager.save_booru_credentials('rule34', rule34_api_key, rule34_user_id)
+            else:
+                saved_credentials = credentials_manager.get_booru_credentials('rule34')
+                rule34_api_key = saved_credentials.get('api_key', '')
+                rule34_user_id = saved_credentials.get('user_id', '')
+
+        booru_apis = {
+            'gelbooru': Gelbooru(fringe_benefits, gelbooru_api_key, gelbooru_user_id),
+            'rule34': Rule34(rule34_api_key, rule34_user_id),
+            'safebooru': Safebooru(),
+            'danbooru': Danbooru(),
+            'aibooru': AIBooru(),
+            'xbooru': XBooru(),
+            'e621': e621(),
+        }
+
+        bad_tags = []
+        if remove_bad_tags:
+            bad_tags = ['mixed-language_text', 'watermark', 'text', 'english_text', 'speech_bubble', 'signature', 'artist_name', 'censored', 'bar_censor', 'translation', 'twitter_username', 'twitter_logo', 'patreon_username', 'commentary_request', 'tagme', 'commentary', 'character_name', 'mosaic_censoring', 'instagram_username', 'text_focus', 'english_commentary', 'comic', 'translation_request', 'fake_text', 'translated', 'paid_reward_available', 'thought_bubble', 'multiple_views', 'silent_comic', 'out-of-frame_censoring', 'symbol-only_commentary', '3koma', '2koma', 'character_watermark', 'spoken_question_mark', 'japanese_text', 'spanish_text', 'language_text', 'fanbox_username', 'commission', 'original', 'ai_generated', 'stable_diffusion', 'tagme_(artist)', 'text_bubble', 'qr_code', 'chinese_commentary', 'korean_text', 'partial_commentary', 'chinese_text', 'copyright_request', 'heart_censor', 'censored_nipples', 'page_number', 'scan', 'fake_magazine_cover', 'korean_commentary']
+        if ',' in remove_tags:
+            bad_tags.extend(remove_tags.split(','))
+        else:
+            if remove_tags:
+                bad_tags.append(remove_tags)
+        if use_remove_txt:
+            bad_tags.extend(open(os.path.join(user_remove_dir, choose_remove_txt), 'r').read().split(','))
+
+        prompt_addition = ''
+        background_options = {
+            'Add Background': ('detailed_background,' + random.choice(["outdoors", "indoors"]), COLORED_BG),
+            'Remove Background': ('plain_background,simple_background,' + random.choice(COLORED_BG), ADD_BG),
+            'Remove All': ('', COLORED_BG + ADD_BG)
+        }
+        if change_background in background_options:
+            pa, tags_to_remove = background_options[change_background]
+            bad_tags.extend(tags_to_remove)
+            prompt_addition = pa
+
+        color_options = {
+            'Colored': BW_BG,
+            'Limited Palette': '(limited_palette:1.3)',
+            'Monochrome': ','.join(BW_BG)
+        }
+        if change_color in color_options:
+            co = color_options[change_color]
+            if isinstance(co, list):
+                bad_tags.extend(co)
+            else:
+                prompt_addition = f'{prompt_addition},{co}' if prompt_addition else co
+
+        if use_search_txt:
+            search_tags = open(os.path.join(user_search_dir, choose_search_txt), 'r').read()
+            search_tags_r = search_tags.replace(' ', '')
+            split_tags = search_tags_r.splitlines()
+            filtered_tags = [line for line in split_tags if line.strip()]
+            if filtered_tags:
+                selected_tags = random.choice(filtered_tags)
+                tags = f'{tags},{selected_tags}' if tags else selected_tags
+
+        add_tags = '&tags=-animated'
+        if tags:
+            add_tags += '+' + tags.replace(',', '+')
+            if mature_rating != 'All':
+                add_tags += f'+rating:{RATINGS[booru][mature_rating]}'
+
+        api_url = booru_apis.get(booru, Gelbooru(fringe_benefits, gelbooru_api_key, gelbooru_user_id))
+        if post_id:
+            data = api_url.get_post(add_tags, max_pages, post_id)
+        else:
+            data = api_url.get_data(add_tags, max_pages)
+        posts = data.get('post', [])
+        if not isinstance(posts, list):
+            posts = []
+        if len(posts) == 0 and booru == 'rule34' and add_tags.startswith('&tags=-animated'):
+            ft = '&tags='
+            if tags:
+                ft += tags.replace(',', '+')
+            if mature_rating != 'All':
+                ft += f'+rating:{RATINGS[booru][mature_rating]}'
+            data = api_url.get_data(ft, max_pages)
+            posts = data.get('post', []) if isinstance(data.get('post', []), list) else []
+        if len(posts) == 0:
+            return '未找到符合条件的帖子'
+
+        for post in posts:
+            if isinstance(post, dict):
+                s = post.get('score')
+                try:
+                    post['score'] = int(s) if s not in (None, '') else 0
+                except Exception:
+                    post['score'] = 0
+        if sorting_order == 'High Score':
+            posts = sorted(posts, key=lambda k: (k.get('score') if isinstance(k, dict) else 0) or 0, reverse=True)
+        elif sorting_order == 'Low Score':
+            posts = sorted(posts, key=lambda k: (k.get('score') if isinstance(k, dict) else 0) or 0)
+
+        rn = self.random_number(sorting_order, 1, len(posts))[0]
+        if mix_prompt:
+            temp_tags = []
+            mt = 0
+            for _ in range(0, mix_amount):
+                rm = self.random_number(sorting_order, 1, len(posts))[0]
+                temp_tags.extend(posts[rm]['tags'].split(' '))
+                mt = max(mt, len(posts[rm]['tags'].split(' ')))
+            temp_tags = list(set(temp_tags))
+            rp = posts[rn]
+            mt = min(max(len(temp_tags), 20), mt)
+            rp['tags'] = ' '.join(random.sample(temp_tags, mt))
+        else:
+            rp = posts[rn]
+
+        clean_tags = rp['tags'].replace('(', r'\(').replace(')', r'\)')
+        temp_tags = random.sample(clean_tags.split(' '), len(clean_tags.split(' '))) if shuffle_tags else clean_tags.split(' ')
+        prompt = ','.join([t for t in temp_tags if t.strip() not in bad_tags])
+        for bt in bad_tags:
+            if '*' in bt:
+                prompt = ','.join([t for t in prompt.split(',') if bt.replace('*', '') not in t])
+        if change_dash:
+            prompt = prompt.replace('_', ' ')
+        if limit_tags < 1:
+            prompt = limit_prompt_tags(prompt, limit_tags, 'Limit')
+        if max_tags > 0:
+            prompt = limit_prompt_tags(prompt, max_tags, 'Max')
+        final_prompt = f'{prompt_addition},{prompt}' if prompt_addition else prompt
+        return final_prompt
+
+    def generate_and_set_prompt(self, booru, max_pages, post_id, tags, remove_bad_tags, remove_tags, change_background, change_color, shuffle_tags, change_dash, mix_prompt, mix_amount, use_search_txt, choose_search_txt, use_remove_txt, choose_remove_txt, fringe_benefits, use_cache, api_key, user_id, save_credentials, mature_rating, sorting_order, limit_tags, max_tags, tag_prompt_text, current_prompt):
+        final_prompt = self.generate_prompts_only(booru, max_pages, post_id, tags, remove_bad_tags, remove_tags, change_background, change_color, shuffle_tags, change_dash, mix_prompt, mix_amount, use_search_txt, choose_search_txt, use_remove_txt, choose_remove_txt, fringe_benefits, use_cache, api_key, user_id, save_credentials, mature_rating, sorting_order, limit_tags, max_tags)
+        if not final_prompt or final_prompt.strip() == '' or final_prompt == '未找到符合条件的帖子':
+            return final_prompt, current_prompt
+        if tag_prompt_text and tag_prompt_text.strip():
+            combined_prompt = f"{tag_prompt_text.strip()}{',' if final_prompt else ''}{final_prompt}"
+        else:
+            combined_prompt = final_prompt
+        return combined_prompt, combined_prompt
 
     def random_number(self, sorting_order, size, count):
         """Generates random numbers based on the sorting_order
