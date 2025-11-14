@@ -8,8 +8,13 @@ import os
 from PIL import Image
 import numpy as np
 import importlib
-import requests_cache
 import json
+try:
+    import requests_cache
+    HAS_REQUESTS_CACHE = True
+except Exception:
+    requests_cache = None
+    HAS_REQUESTS_CACHE = False
 
 from modules.processing import process_images, StableDiffusionProcessingImg2Img
 from modules import shared
@@ -158,6 +163,7 @@ class Booru():
 
     def __init__(self, booru, booru_url):
         self.booru = booru
+        self.base_url = booru_url
         self.booru_url = booru_url
         self.headers = {'user-agent': 'my-app/0.0.1'}
 
@@ -187,13 +193,13 @@ class Gelbooru(Booru):
             api_params = f"&pid={random.randint(0, max_pages-1)}{id}{add_tags}"
             if self.api_key and self.user_id:
                 api_params += f"&api_key={self.api_key}&user_id={self.user_id}"
-            
-            self.booru_url = f"{self.booru_url}{api_params}"
+            url = f"{self.base_url}{api_params}"
+            self.booru_url = url
             # The randint function is an alias to randrange(a, b+1), so 'max_pages' should be passed as 'max_pages-1'
             if self.fringeBenefits:
-                res = requests.get(self.booru_url, cookies={'fringeBenefits': 'yup'})
+                res = requests.get(url, cookies={'fringeBenefits': 'yup'})
             else:
-                res = requests.get(self.booru_url)
+                res = requests.get(url)
             data = res.json()
             COUNT = data['@attributes']['count']
             if COUNT <= max_pages*POST_AMOUNT:
@@ -224,9 +230,10 @@ class XBooru(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            self.booru_url = f"{self.booru_url}&pid={random.randint(0, max_pages-1)}{id}{add_tags}"
-            print(self.booru_url)
-            res = requests.get(self.booru_url)
+            url = f"{self.base_url}&pid={random.randint(0, max_pages-1)}{id}{add_tags}"
+            self.booru_url = url
+            print(url)
+            res = requests.get(url)
             data = res.json()
             COUNT = 0
             for post in data:
@@ -260,9 +267,15 @@ class Rule34(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            self.booru_url = f"{self.booru_url}&pid={random.randint(0, max_pages-1)}{id}{add_tags}"
-            res = requests.get(self.booru_url)
-            data = res.json()
+            url = f"{self.base_url}&pid={random.randint(0, max_pages-1)}{id}{add_tags}"
+            self.booru_url = url
+            res = requests.get(url)
+            try:
+                data = res.json()
+            except Exception:
+                data = []
+            if not isinstance(data, list):
+                data = []
             COUNT = len(data)
             if COUNT == 0:
                 max_pages = 2
@@ -292,8 +305,9 @@ class Safebooru(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            self.booru_url = f"{self.booru_url}&pid={random.randint(0, max_pages-1)}{id}{add_tags}"
-            res = requests.get(self.booru_url)
+            url = f"{self.base_url}&pid={random.randint(0, max_pages-1)}{id}{add_tags}"
+            self.booru_url = url
+            res = requests.get(url)
             data = res.json()
             COUNT = 0
             for post in data:
@@ -327,9 +341,16 @@ class Konachan(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            self.booru_url = f"{self.booru_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
-            res = requests.get(self.booru_url)
-            data = res.json()
+            url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
+            self.booru_url = url
+            res = requests.get(url)
+            if res.status_code != 200:
+                data = []
+            else:
+                try:
+                    data = res.json()
+                except Exception:
+                    data = []
             COUNT = len(data)
             if COUNT == 0:
                 max_pages = 2
@@ -359,10 +380,16 @@ class Yandere(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            self.booru_url = f"{self.booru_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
-            res = requests.get(self.booru_url)
-            data = res.json()
-            COUNT = len(data)
+            url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
+            self.booru_url = url
+            res = requests.get(url)
+            if res.status_code != 200:
+                data = []
+            else:
+                try:
+                    data = res.json()
+                except Exception:
+                    data = []
             COUNT = len(data)
             if COUNT == 0:
                 max_pages = 2
@@ -392,8 +419,9 @@ class AIBooru(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            self.booru_url = f"{self.booru_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
-            res = requests.get(self.booru_url)
+            url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
+            self.booru_url = url
+            res = requests.get(url)
             data = res.json()
             for post in data:
                 post['tags'] = post['tag_string']
@@ -426,8 +454,9 @@ class Danbooru(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            self.booru_url = f"{self.booru_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
-            res = requests.get(self.booru_url, headers=self.headers)
+            url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
+            self.booru_url = url
+            res = requests.get(url, headers=self.headers)
             data = res.json()
             for post in data:
                 post['tags'] = post['tag_string']
@@ -465,8 +494,9 @@ class e621(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            self.booru_url = f"{self.booru_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
-            res = requests.get(self.booru_url, headers=self.headers)
+            url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
+            self.booru_url = url
+            res = requests.get(url, headers=self.headers)
             data = res.json()['posts']
             COUNT = len(data)
             for post in data:
@@ -871,11 +901,15 @@ class Script(scripts.Script):
                 p.prompt = f'{lora_prompt} {p.prompt}'
         return p
 
-    def before_process(self, p, enabled, tags, booru, remove_bad_tags, max_pages, change_dash, same_prompt, fringe_benefits, remove_tags, use_img2img, denoising, use_last_img, change_background, change_color, shuffle_tags, post_id, mix_prompt, mix_amount, chaos_mode, negative_mode, chaos_amount, limit_tags, max_tags, sorting_order, mature_rating, lora_folder, lora_amount, lora_min, lora_max, lora_enabled, lora_custom_weights, lora_lock_prev, use_ip, use_search_txt, use_remove_txt, choose_search_txt, choose_remove_txt, search_refresh_btn, remove_refresh_btn, crop_center, use_deepbooru, type_deepbooru, use_same_seed, use_cache, api_key, user_id, save_credentials, credentials_status, clear_credentials_btn):        # Manage Cache
-        if use_cache and not requests_cache.patcher.is_installed():
-            requests_cache.install_cache('ranbooru_cache', backend='sqlite', expire_after=3600)
-        elif not use_cache and requests_cache.patcher.is_installed():
-            requests_cache.uninstall_cache()
+    def before_process(self, p, enabled, tags, booru, remove_bad_tags, max_pages, change_dash, same_prompt, fringe_benefits, remove_tags, use_img2img, denoising, use_last_img, change_background, change_color, shuffle_tags, post_id, mix_prompt, mix_amount, chaos_mode, negative_mode, chaos_amount, limit_tags, max_tags, sorting_order, mature_rating, lora_folder, lora_amount, lora_min, lora_max, lora_enabled, lora_custom_weights, lora_lock_prev, use_ip, use_search_txt, use_remove_txt, choose_search_txt, choose_remove_txt, search_refresh_btn, remove_refresh_btn, crop_center, use_deepbooru, type_deepbooru, use_same_seed, use_cache, api_key, user_id, save_credentials, credentials_status, clear_credentials_btn):
+        if use_cache:
+            if HAS_REQUESTS_CACHE and not requests_cache.patcher.is_installed():
+                requests_cache.install_cache('ranbooru_cache', backend='sqlite', expire_after=3600)
+            elif not HAS_REQUESTS_CACHE:
+                print('requests-cache not installed; running without cache')
+        else:
+            if HAS_REQUESTS_CACHE and requests_cache.patcher.is_installed():
+                requests_cache.uninstall_cache()
         
         if enabled:
             # Handle Gelbooru credentials
@@ -982,14 +1016,30 @@ class Script(scripts.Script):
                 data = api_url.get_data(add_tags, max_pages)
 
             print(api_url.booru_url)
+            posts = data.get('post', [])
+            if not isinstance(posts, list):
+                posts = []
+            if len(posts) == 0:
+                if booru == 'rule34' and add_tags.startswith('&tags=-animated'):
+                    fallback_add_tags = '&tags='
+                    if tags:
+                        fallback_add_tags += tags.replace(',', '+')
+                    if mature_rating != 'All':
+                        fallback_add_tags += f'+rating:{RATINGS[booru][mature_rating]}'
+                    data = api_url.get_data(fallback_add_tags, max_pages)
+                    posts = data.get('post', []) if isinstance(data.get('post', []), list) else []
+                if len(posts) == 0:
+                    print('No posts found; skipping Ranbooru prompt injection.')
+                    return p
             # Replace null scores with 0s
-            for post in data['post']:
-                post['score'] = post.get('score', 0)
+            for post in posts:
+                if isinstance(post, dict):
+                    post['score'] = post.get('score', 0)
             # Sort based on sorting_order
             if sorting_order == 'High Score':
-                data['post'] = sorted(data['post'], key=lambda k: k.get('score', 0), reverse=True)
+                data['post'] = sorted(posts, key=lambda k: k.get('score', 0) if isinstance(k, dict) else 0, reverse=True)
             elif sorting_order == 'Low Score':
-                data['post'] = sorted(data['post'], key=lambda k: k.get('score', 0))
+                data['post'] = sorted(posts, key=lambda k: k.get('score', 0) if isinstance(k, dict) else 0)
             if post_id:
                 print(f'Using post ID: {post_id}')
                 random_numbers = [0 for _ in range(0, p.batch_size * p.n_iter)]
@@ -1213,14 +1263,22 @@ class Script(scripts.Script):
             list: the random numbers
         """
         global COUNT
-        if COUNT > POST_AMOUNT: # Modified to use COUNT instead of POST_AMOUNT
-            COUNT = POST_AMOUNT # If there are more than 100 images, use POST_AMOUNT
+        if COUNT <= 0:
+            raise Exception("No posts found with those tags. Try lowering the pages or changing the tags.")
+        if COUNT > POST_AMOUNT:
+            COUNT = POST_AMOUNT
         weights = np.arange(COUNT, 0, -1)
         weights = weights / weights.sum()
         if sorting_order in ('High Score', 'Low Score'):
-            random_numbers = np.random.choice(np.arange(COUNT), size=size, p=weights, replace=False)
+            if size <= COUNT:
+                random_numbers = np.random.choice(np.arange(COUNT), size=size, p=weights, replace=False).tolist()
+            else:
+                random_numbers = np.random.choice(np.arange(COUNT), size=size, p=weights, replace=True).tolist()
         else:
-            random_numbers = random.sample(range(COUNT), size)
+            if size <= COUNT:
+                random_numbers = random.sample(range(COUNT), size)
+            else:
+                random_numbers = np.random.choice(np.arange(COUNT), size=size, replace=True).tolist()
         return random_numbers
 
     def use_autotagger(self, model):
