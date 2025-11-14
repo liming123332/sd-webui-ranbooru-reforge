@@ -155,8 +155,6 @@ def check_exception(booru, parameters):
         raise Exception("Yande.re does not support post IDs")
     if booru == 'e621' and post_id:
         raise Exception("e621 does not support post IDs")
-    if booru == 'danbooru' and len(tags.split(',')) > 1:
-        raise Exception("Danbooru does not support multiple tags. You can have only one tag.")
 
 
 class Booru():
@@ -200,8 +198,11 @@ class Gelbooru(Booru):
                 res = requests.get(url, cookies={'fringeBenefits': 'yup'})
             else:
                 res = requests.get(url)
-            data = res.json()
-            COUNT = data['@attributes']['count']
+            try:
+                data = res.json()
+            except Exception:
+                data = {'@attributes': {'count': 0}, 'post': []}
+            COUNT = data.get('@attributes', {}).get('count', 0)
             if COUNT <= max_pages*POST_AMOUNT:
                 max_pages = COUNT // POST_AMOUNT+1
                 # If max_pages is bigger than available pages, loop the function with updated max_pages based on the value of COUNT
@@ -258,8 +259,10 @@ class XBooru(Booru):
 
 class Rule34(Booru):
 
-    def __init__(self):
+    def __init__(self, api_key=None, user_id=None):
         super().__init__('rule34', f'https://api.rule34.xxx/index.php?page=dapi&s=post&q=index&json=1&limit={POST_AMOUNT}')
+        self.api_key = api_key
+        self.user_id = user_id
 
     def get_data(self, add_tags, max_pages=10, id=''):
         global COUNT
@@ -268,6 +271,8 @@ class Rule34(Booru):
             if id:
                 add_tags = ''
             url = f"{self.base_url}&pid={random.randint(0, max_pages-1)}{id}{add_tags}"
+            if self.api_key and self.user_id:
+                url += f"&api_key={self.api_key}&user_id={self.user_id}"
             self.booru_url = url
             res = requests.get(url)
             try:
@@ -372,7 +377,7 @@ class Konachan(Booru):
 class Yandere(Booru):
 
     def __init__(self):
-        super().__init__('yande.re', f'https://yande.re/post.json?limit={POST_AMOUNT}')
+        super().__init__('yande.re', f'https://yande.re/post.json?api_version=2')
 
     def get_data(self, add_tags, max_pages=10, id=''):
         global COUNT
@@ -380,17 +385,22 @@ class Yandere(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
+            page = random.randint(0, max_pages-1)
+            extras = '&filter=1&include_tags=1&include_votes=1&include_pools=1'
+            url = f"{self.base_url}&limit={POST_AMOUNT}&page={page}{id}{add_tags}{extras}"
             self.booru_url = url
             res = requests.get(url)
-            if res.status_code != 200:
-                data = []
-            else:
+            posts = []
+            if res.status_code == 200:
                 try:
                     data = res.json()
+                    if isinstance(data, dict):
+                        posts = data.get('posts', [])
+                    elif isinstance(data, list):
+                        posts = data
                 except Exception:
-                    data = []
-            COUNT = len(data)
+                    posts = []
+            COUNT = len(posts)
             if COUNT == 0:
                 max_pages = 2
                 # Yandere does not have a way to know the amount of results available in the search, so we need to run the function again with a fixed amount of pages
@@ -402,7 +412,7 @@ class Yandere(Booru):
             else:
                 print(f"Found enough results")
             break
-        return {'post': data}
+        return {'post': posts}
 
     def get_post(self, add_tags, max_pages=10, id=''):
         raise Exception("Yande.re does not support post IDs")
@@ -458,8 +468,14 @@ class Danbooru(Booru):
             self.booru_url = url
             res = requests.get(url, headers=self.headers)
             data = res.json()
+            if not isinstance(data, list):
+                try:
+                    data = data.get('posts', [])
+                except AttributeError:
+                    data = []
             for post in data:
-                post['tags'] = post['tag_string']
+                if isinstance(post, dict):
+                    post['tags'] = post.get('tag_string', '')
             COUNT = len(data)
             if COUNT == 0:
                 max_pages = 2
@@ -679,18 +695,18 @@ class Script(scripts.Script):
 
     def show_gelbooru_api_fields(self, booru):
         """Show/hide API key fields based on selected booru"""
-        if booru == 'gelbooru':
+        if booru in ['gelbooru', 'rule34']:
             return gr.update(visible=True)
         else:
             return gr.update(visible=False)
     
     def load_gelbooru_credentials(self, booru):
-        """Load saved credentials for Gelbooru"""
-        if booru == 'gelbooru':
-            credentials = credentials_manager.get_booru_credentials('gelbooru')
+        """Load saved credentials for selected booru"""
+        if booru in ['gelbooru', 'rule34']:
+            credentials = credentials_manager.get_booru_credentials(booru)
             api_key = credentials.get('api_key', '')
             user_id = credentials.get('user_id', '')
-            has_saved_creds = credentials_manager.has_credentials('gelbooru')
+            has_saved_creds = credentials_manager.has_credentials(booru)
             
             if has_saved_creds:
                 # Hide input fields and show file path
@@ -718,14 +734,13 @@ class Script(scripts.Script):
                 gr.update(visible=False)  # clear_credentials_btn
             )
     
-    def clear_gelbooru_credentials(self):
-        """Clear saved Gelbooru credentials"""
-        credentials_manager.clear_booru_credentials('gelbooru')
+    def clear_gelbooru_credentials(self, booru="gelbooru"):
+        credentials_manager.clear_booru_credentials(booru)
         return (
-            gr.update(visible=True, value=""),  # api_key field
-            gr.update(visible=True, value=""),  # user_id field  
-            gr.update(visible=False, value=""),  # credentials_status
-            gr.update(visible=False)  # clear_credentials_btn
+            gr.update(visible=True, value=""),
+            gr.update(visible=True, value=""),
+            gr.update(visible=False, value=""),
+            gr.update(visible=False)
         )
 
     def save_gelbooru_credentials(self, booru, api_key, user_id, save_credentials):
@@ -755,7 +770,7 @@ class Script(scripts.Script):
         
         with InputAccordion(False, label="Ranbooru", elem_id=self.elem_id("ra_enable")) as enabled:
             booru = gr.Dropdown(
-                ["safebooru", "rule34", "danbooru", "gelbooru", "konachan", 'yande.re', 'aibooru', 'xbooru', 'e621'], label="Booru", value="safebooru")
+                ["safebooru", "rule34", "danbooru", "gelbooru", 'aibooru', 'xbooru', 'e621'], label="Booru", value="safebooru")
             max_pages = gr.Slider(label="Max Pages", minimum=1, maximum=100, value=100, step=1)
             gr.Markdown("""## Post""")
             post_id = gr.Textbox(lines=1, label="Post ID")
@@ -769,13 +784,13 @@ class Script(scripts.Script):
             same_prompt = gr.Checkbox(label="Use same prompt for all images", value=False)
             fringe_benefits = gr.Checkbox(label="Fringe Benefits", value=True)            # API credentials for Gelbooru
             with gr.Group(visible=True) as gelbooru_credentials_group:
-                gr.Markdown("### Gelbooru API Credentials")
+                gr.Markdown("### API Credentials")
                 api_key = gr.Textbox(
-                    lines=1, label="API Key", placeholder="Enter your Gelbooru API key",
+                    lines=1, label="API Key", placeholder="Enter your API key",
                     type="password", visible=initial_api_key_visible, value=saved_creds.get('api_key', '')
                 )
                 user_id = gr.Textbox(
-                    lines=1, label="User ID", placeholder="Enter your Gelbooru user ID",
+                    lines=1, label="User ID", placeholder="Enter your user ID",
                     visible=initial_user_id_visible, value=saved_creds.get('user_id', '')
                 )
                 save_credentials = gr.Checkbox(label="Save credentials", value=False, visible=True)
@@ -794,7 +809,7 @@ class Script(scripts.Script):
             sorting_order = gr.Radio(["Random", "High Score", "Low Score"], label="Sorting Order", value="Random")            
             booru.change(get_available_ratings, booru, mature_rating)  # update available ratings
             booru.change(show_fringe_benefits, booru, fringe_benefits)  # display fringe benefits checkbox if gelbooru is selected
-            booru.change(self.show_gelbooru_api_fields, booru, gelbooru_credentials_group)  # show/hide gelbooru credentials group
+            booru.change(self.show_gelbooru_api_fields, booru, gelbooru_credentials_group)
 
             gr.Markdown("""\n---\n""")
             with gr.Group():
@@ -859,7 +874,7 @@ class Script(scripts.Script):
         # Event handler for clearing credentials
         clear_credentials_btn.click(
             fn=self.clear_gelbooru_credentials,
-            inputs=[],
+            inputs=[booru],
             outputs=[api_key, user_id, credentials_status, clear_credentials_btn]
         )
 
@@ -912,10 +927,10 @@ class Script(scripts.Script):
                 requests_cache.uninstall_cache()
         
         if enabled:
-            # Handle Gelbooru credentials
             gelbooru_api_key = None
             gelbooru_user_id = None
-            
+            rule34_api_key = None
+            rule34_user_id = None
             if booru == 'gelbooru':
                 # Use provided credentials or load from saved credentials
                 if api_key.strip() and user_id.strip():
@@ -930,11 +945,21 @@ class Script(scripts.Script):
                     saved_credentials = credentials_manager.get_booru_credentials('gelbooru')
                     gelbooru_api_key = saved_credentials.get('api_key', '')
                     gelbooru_user_id = saved_credentials.get('user_id', '')
+            if booru == 'rule34':
+                if api_key.strip() and user_id.strip():
+                    rule34_api_key = api_key.strip()
+                    rule34_user_id = user_id.strip()
+                    if save_credentials:
+                        credentials_manager.save_booru_credentials('rule34', rule34_api_key, rule34_user_id)
+                else:
+                    saved_credentials = credentials_manager.get_booru_credentials('rule34')
+                    rule34_api_key = saved_credentials.get('api_key', '')
+                    rule34_user_id = saved_credentials.get('user_id', '')
             
             # Initialize APIs
             booru_apis = {
                 'gelbooru': Gelbooru(fringe_benefits, gelbooru_api_key, gelbooru_user_id),
-                'rule34': Rule34(),
+                'rule34': Rule34(rule34_api_key, rule34_user_id),
                 'safebooru': Safebooru(),
                 'danbooru': Danbooru(),
                 'konachan': Konachan(),
@@ -991,9 +1016,11 @@ class Script(scripts.Script):
                 search_tags_r = search_tags.replace(" ", "")
                 split_tags = search_tags_r.splitlines()
                 filtered_tags = [line for line in split_tags if line.strip()]
-                rand_selected = random.randint(0, len(filtered_tags) - 1)
-                selected_tags = filtered_tags[rand_selected]
-                tags = f'{tags},{selected_tags}' if tags else selected_tags
+                if filtered_tags:
+                    selected_tags = random.choice(filtered_tags)
+                    tags = f'{tags},{selected_tags}' if tags else selected_tags
+                else:
+                    print('No tags found in search file; skipping')
 
             add_tags = '&tags=-animated'
             if tags:
@@ -1034,12 +1061,16 @@ class Script(scripts.Script):
             # Replace null scores with 0s
             for post in posts:
                 if isinstance(post, dict):
-                    post['score'] = post.get('score', 0)
+                    score = post.get('score')
+                    try:
+                        post['score'] = int(score) if score not in (None, '') else 0
+                    except Exception:
+                        post['score'] = 0
             # Sort based on sorting_order
             if sorting_order == 'High Score':
-                data['post'] = sorted(posts, key=lambda k: k.get('score', 0) if isinstance(k, dict) else 0, reverse=True)
+                data['post'] = sorted(posts, key=lambda k: (k.get('score') if isinstance(k, dict) else 0) or 0, reverse=True)
             elif sorting_order == 'Low Score':
-                data['post'] = sorted(posts, key=lambda k: k.get('score', 0) if isinstance(k, dict) else 0)
+                data['post'] = sorted(posts, key=lambda k: (k.get('score') if isinstance(k, dict) else 0) or 0)
             if post_id:
                 print(f'Using post ID: {post_id}')
                 random_numbers = [0 for _ in range(0, p.batch_size * p.n_iter)]
