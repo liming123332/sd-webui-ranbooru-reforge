@@ -1058,6 +1058,7 @@ class Script(scripts.Script):
                 if len(posts) == 0:
                     print('No posts found; skipping Ranbooru prompt injection.')
                     return p
+            COUNT = len(posts)
             # Replace null scores with 0s
             for post in posts:
                 if isinstance(post, dict):
@@ -1075,7 +1076,7 @@ class Script(scripts.Script):
                 print(f'Using post ID: {post_id}')
                 random_numbers = [0 for _ in range(0, p.batch_size * p.n_iter)]
             else:
-                random_numbers = self.random_number(sorting_order, p.batch_size * p.n_iter)
+                random_numbers = self.random_number(sorting_order, p.batch_size * p.n_iter, len(data['post']))
             for random_number in random_numbers:
                 if same_prompt:
                     random_post = data['post'][random_numbers[0]]
@@ -1085,7 +1086,7 @@ class Script(scripts.Script):
                         max_tags = 0
                         for _ in range(0, mix_amount):
                             if not post_id:
-                                random_mix_number = self.random_number(sorting_order, 1)[0]
+                                random_mix_number = self.random_number(sorting_order, 1, len(data['post']))[0]
                             temp_tags.extend(data['post'][random_mix_number]['tags'].split(' '))
                             max_tags = max(max_tags, len(data['post'][random_mix_number]['tags'].split(' ')))
                         # distinct temp_tags
@@ -1283,7 +1284,7 @@ class Script(scripts.Script):
                     processed.images.append(img)
                     processed.infotexts.append(proc.infotexts[num + 1])
 
-    def random_number(self, sorting_order, size):
+    def random_number(self, sorting_order, size, count):
         """Generates random numbers based on the sorting_order
 
         Args:
@@ -1293,23 +1294,22 @@ class Script(scripts.Script):
         Returns:
             list: the random numbers
         """
-        global COUNT
-        if COUNT <= 0:
+        if count <= 0:
             raise Exception("No posts found with those tags. Try lowering the pages or changing the tags.")
-        if COUNT > POST_AMOUNT:
-            COUNT = POST_AMOUNT
-        weights = np.arange(COUNT, 0, -1)
+        if count > POST_AMOUNT:
+            count = POST_AMOUNT
+        weights = np.arange(count, 0, -1)
         weights = weights / weights.sum()
         if sorting_order in ('High Score', 'Low Score'):
-            if size <= COUNT:
-                random_numbers = np.random.choice(np.arange(COUNT), size=size, p=weights, replace=False).tolist()
+            if size <= count:
+                random_numbers = np.random.choice(np.arange(count), size=size, p=weights, replace=False).tolist()
             else:
-                random_numbers = np.random.choice(np.arange(COUNT), size=size, p=weights, replace=True).tolist()
+                random_numbers = np.random.choice(np.arange(count), size=size, p=weights, replace=True).tolist()
         else:
-            if size <= COUNT:
-                random_numbers = random.sample(range(COUNT), size)
+            if size <= count:
+                random_numbers = random.sample(range(count), size)
             else:
-                random_numbers = np.random.choice(np.arange(COUNT), size=size, replace=True).tolist()
+                random_numbers = np.random.choice(np.arange(count), size=size, replace=True).tolist()
         return random_numbers
 
     def use_autotagger(self, model):
