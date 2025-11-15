@@ -21,7 +21,10 @@ from modules.processing import process_images, StableDiffusionProcessingImg2Img
 from modules import shared
 from modules.sd_hijack import model_hijack
 from modules import deepbooru
-from modules.ui_components import InputAccordion
+try:
+    from modules.ui_components import InputAccordion
+except Exception:
+    InputAccordion = gr.Accordion
 
 extension_root = scripts.basedir()
 user_data_dir = os.path.join(extension_root, 'user')
@@ -196,9 +199,9 @@ class Gelbooru(Booru):
             self.booru_url = url
             # The randint function is an alias to randrange(a, b+1), so 'max_pages' should be passed as 'max_pages-1'
             if self.fringeBenefits:
-                res = requests.get(url, cookies={'fringeBenefits': 'yup'})
+                res = requests.get(url, cookies={'fringeBenefits': 'yup'}, timeout=10)
             else:
-                res = requests.get(url)
+                res = requests.get(url, timeout=10)
             try:
                 data = res.json()
             except Exception:
@@ -235,7 +238,7 @@ class XBooru(Booru):
             url = f"{self.base_url}&pid={random.randint(0, max_pages-1)}{id}{add_tags}"
             self.booru_url = url
             print(url)
-            res = requests.get(url)
+            res = requests.get(url, timeout=10)
             data = res.json()
             COUNT = 0
             for post in data:
@@ -275,7 +278,7 @@ class Rule34(Booru):
             if self.api_key and self.user_id:
                 url += f"&api_key={self.api_key}&user_id={self.user_id}"
             self.booru_url = url
-            res = requests.get(url)
+            res = requests.get(url, timeout=10)
             try:
                 data = res.json()
             except Exception:
@@ -313,7 +316,7 @@ class Safebooru(Booru):
                 add_tags = ''
             url = f"{self.base_url}&pid={random.randint(0, max_pages-1)}{id}{add_tags}"
             self.booru_url = url
-            res = requests.get(url)
+            res = requests.get(url, timeout=10)
             data = res.json()
             COUNT = 0
             for post in data:
@@ -349,7 +352,7 @@ class Konachan(Booru):
                 add_tags = ''
             url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
             self.booru_url = url
-            res = requests.get(url)
+            res = requests.get(url, timeout=10)
             if res.status_code != 200:
                 data = []
             else:
@@ -390,7 +393,7 @@ class Yandere(Booru):
             extras = '&filter=1&include_tags=1&include_votes=1&include_pools=1'
             url = f"{self.base_url}&limit={POST_AMOUNT}&page={page}{id}{add_tags}{extras}"
             self.booru_url = url
-            res = requests.get(url)
+            res = requests.get(url, timeout=10)
             posts = []
             if res.status_code == 200:
                 try:
@@ -467,7 +470,7 @@ class Danbooru(Booru):
                 add_tags = ''
             url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
             self.booru_url = url
-            res = requests.get(url, headers=self.headers)
+            res = requests.get(url, headers=self.headers, timeout=10)
             data = res.json()
             if not isinstance(data, list):
                 try:
@@ -493,7 +496,7 @@ class Danbooru(Booru):
 
     def get_post(self, add_tags, max_pages=10, id=''):
         self.booru_url = f"https://danbooru.donmai.us/posts/{id}.json"
-        res = requests.get(self.booru_url, headers=self.headers)
+        res = requests.get(self.booru_url, headers=self.headers, timeout=10)
         data = res.json()
         data['tags'] = data['tag_string']
         data = {'post': [data]}
@@ -513,7 +516,7 @@ class e621(Booru):
                 add_tags = ''
             url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
             self.booru_url = url
-            res = requests.get(url, headers=self.headers)
+            res = requests.get(url, headers=self.headers, timeout=10)
             data = res.json()['posts']
             COUNT = len(data)
             for post in data:
@@ -1166,7 +1169,7 @@ class Script(scripts.Script):
                 image_urls = [random_post['file_url']] if use_last_img else preview_urls
 
                 for img in image_urls:
-                    response = requests.get(img, headers=api_url.headers)
+                    response = requests.get(img, headers=api_url.headers, timeout=10)
                     last_img.append(Image.open(BytesIO(response.content)))
             new_prompts = []
             # Cleaning Tags
