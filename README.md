@@ -1,98 +1,75 @@
-# Ranbooru
-![Alt text](pics/ranbooru.png)
-Ranbooru is an extension for the [automatic111 Stable Diffusion UI](https://github.com/AUTOMATIC1111/stable-diffusion-webui). The purpose of this extension is to add a panel that gets a random set of tags from boorus pictures. This is mostly being used to help me test my checkpoints on a large variety of tags.
-![Alt text](pics/image.png)
+# Ranbooru Forge
 
-## Installation
-Just copy the script from the scripts folder above into the extensions folder of your 1111automatic installation. Then restart 1111automatic, by clicking the "Reload UI" button on the bottom of the page.
-You should find a new panel called "Ranbooru" on the bottom of the page.
+一个适配 AUTOMATIC1111 Stable Diffusion WebUI 的扩展面板，从各大 Booru 随机抓取图片标签并生成可用的提示词。支持 Img2Img、Deepbooru 自动打标、LoRA 随机混用等功能，帮助快速构造丰富、多样化的提示词组合。
 
-## Features
-The extension is now divided into two main functionalities that can be used together or separately:
-### Ranbooru
-This is the main part of the extension. It gets a random set of tags from boorus pictures.  
-Here's an explanation of all the parameters:
-- **Booru**: The booru to get the tags from. Right now Gelbooru, Rule34, Safebooru, yande.re, konachan, aibooru, danbooru and xbooru are implemented. You can easily add more creating a class for the booru and adding it to the booru list in the script.
+![Ranbooru 面板](pics/ranbooru.png)
 
-### ⚠️ Gelbooru API Credentials Required
-As of June 2025, Gelbooru requires an API key and user ID to access its API. When you select Gelbooru in the Ranbooru panel, you will see fields to enter your API key and user ID. You can optionally save these credentials securely to disk. If credentials are saved, the input fields will be hidden and a message will display the path to the credentials file. You can clear the saved credentials at any time to re-enter new ones.
+## 安装
+- 方式一（推荐）：将仓库克隆到 WebUI 的 `extensions` 目录：
+  ```bash
+  git clone https://github.com/liming123332/sd-webui-ranbooru-forge.git extensions/sd-webui-ranbooru-forge
+  ```
+- 方式二：将 `scripts/ranbooru.py` 复制到你的扩展目录中。
 
-- **API Key & User ID (Gelbooru only)**: Required to use Gelbooru. You can obtain these from your Gelbooru account settings. If credentials are saved, the UI will show a status message and hide the input fields for security.
+安装完成后，在 WebUI 底部点击 `Reload UI`，页面底部会出现一个名为 `Ranbooru` 的面板。
 
-- **Max Pages**: The maximum amount of pages to get the tags from. The extension will get a random page from the booru and then get the tags from one or more random pictures from that page.
-- **Post ID**: Here you can specify the ID of the post to get the tags from. If you leave it blank, the extension will get a random post (or more than one) from the random page.
-- **Tags to Search (Pre)**: This add the tags you define (this should be separated by commas e.g: 1girl,solo,short_hair) to the search query. This is useful if you want to get tags from a specific category, like "1girl" or "solo".
-- **Tags to Remove (Post)**: This remove the tags you define (this should be separated by commas e.g: 1girl,solo,short_hair) from the result query. This is useful if you want to remove tags that are too generic, like "1girl" or "solo". You can also use * with any tag to remove every tags which contains the related word. e.g: *hair will remove every tag that contains the word "hair".
-- **Mature Rating**: This sets the mature rating of the booru. This is useful if you want to get only SFW or NSFW tags. It only works on supported boorus (right now it has been tested only on Gelbooru).
-- **Remove Bad Tags**: This remove tags that you usually don't need (watermarks,text,censor)
-- **Shuffle Tags**: This shuffle the tags before adding them to the text.
-- **Convert** "\_" to Spaces": This convert \_ to spaces in the tags.
-- **Use the same prompt for all images**: This use the same prompt for all the generated images in the same batch. If not selected, each image will have a different prompt.
-- **Fringe Benefits**: This option is available only for Gelbooru and enables all the hidden content available on the website. This is equivalent to enabling the "Display all site content" flag in the Gelbooru website settings.
-- **Limit Tags**: This limits the number of tags to use in percentage of the original tags. For example, if you set it to 50, it will use only half of the tags.
-- **Max Tags**: This limits the number of tags to use.
-- **Change Background**: This tries to change the background of the parsed tags by adding or removing specific tags
-- **Change Color**: This tries to change the color of the parsed tags by adding or removing specific tags
-- **Sorting Order**: This orders the result of the scraped pictures by high or low score and make it more or less likely to get a high or low score picture. This is applied AFTER the results are scraped, because you cannot use the API to search for high ranking pictures.
-- **Use img2img**: This uses not only the tags from the random image, but also the original picture to generate the final result.
-- **Send to controlnet**: This sends the first image of the batch to the controlnet. (Requires a dummy image selected inside the controlnet panel)
-- **Denoising Strength**: This is the strength of the denoising filter. The higher the value, the more the picture will change from the original.
-- **Use last image as img2img** This uses the same picture for all the img2img generations in the same batch.
-- **Crop Center**: This crops the parsed images to the center before processing. This is useful if you want to keep the width/height you set.
-- **Use Deepbooru**: This uses the Deepbooru Model to get the tags from the random image, instead of the existing ones. This is useful if you want to get more tags from the image.
-- **Use tags_search.txt**: This uses the tags from the specified file in the extensions folder. This is useful if you want to use a specific set of tags.
-- **Choose tags_search.txt**: This is the file to use with the tags_search.txt option. You can add new files in the stable-diffusion-webui\extensions\sd-webui-ranbooru\user\search folder.
-- **Use tags_remove.txt**: This removes the tags from the specified file in the extensions folder. This is useful if you want to remove a specific set of tags.
-- **Choose tags_remove.txt**: This is the file to use with the tags_remove.txt option. You can add new files in the stable-diffusion-webui\extensions\sd-webui-ranbooru\user\remove folder.
-- **Mix Prompts**: This mixes tags from different random images.
-- **Mix Amount**: This sets the number of pictures to grab random tags from.
-- **Chaos Mode**: This mixes the tags between the positive and negative prompt. If set to Less Chaos, it won't move the tags you insert in the negative prompt.
-- **Chaos Amount**: This sets the percentage of tags to move to the negative prompt.
-- **Negative Mode**: This moves all the tags to the negative prompt.
-- **Use Same Seed**: This uses the same seed for all the generations in the same batch.
-- **Use Cache**: This uses the cached version of the page once it has been used. This improves the speed of the search, but it can return the same results if the cache is not cleared.
+## 快速开始
+- 打开 `Ranbooru` 面板。
+- 选择 `Booru`、设置 `Tags to Search (Pre)`（预搜索标签，逗号分隔）。
+- 点击 `生成提示词`，生成的内容会显示在 `提示词输出`，并可自动填入 WebUI 的 `prompt`。
 
-### LoRAnado
-This is a newer experimental function that enables you to pick random LoRAs from a folder and add them to the prompt. This can lead to interesting results.  
-Here's an explanation of all the parameters:
-- **Lock Previous LoRAs**: Uses the same LoRAs of the previous generation. This is useful if you've found an interesting combination and you want to test it with different tags.
-- **LoRAs Subfolder**: The subfolder of the LoRAs folder to use. This is required.
-- **LoRAs Amount**: The amount of LoRAs to use.
-- **Min LoRAs Weight**: The minimum weight of the LoRAs to use in the prompt.
-- **Max LoRAs Weight**: The maximum weight of the LoRAs to use in the prompt.
-- **LoRAs Custom Weights**: Here you can specify the weight to use with the random LoRAs (separated by commas). If you leave it blank, the extension will use the min and max weights. Example: if you have 3 LoRAs you can write: 0.2,0.3,0.5.
+## 功能概览
+- 支持的 Booru：`gelbooru`、`rule34`、`safebooru`、`danbooru`、`yande.re`、`konachan`、`aibooru`、`xbooru`、`e621`。
+- 提示词生成：从随机页面/图片抽取标签，支持去重、打乱、限制数量与最大数量。
+- 过滤与变换：移除坏标签、将 `_` 转为空格、改变背景/色彩模式。
+- 文件驱动：可从 `user/search/tags_search.txt` 与 `user/remove/tags_remove.txt` 读取搜索/移除标签，支持一键刷新文件列表。
+- Img2Img：支持 `denoising`、使用上次图片、裁剪中心；可发送到 ControlNet；可与 Deepbooru 自动打标组合使用（前/后/替换）。
+- 额外模式：混合多个提示词（`Mix prompts`）、`Chaos/Negative` 模式、批次同一随机种子、请求缓存。
+- LoRAnado：随机从指定文件夹挑选 LoRA 并为其设置权重；支持锁定上一轮 LoRA、权重范围或自定义权重、数量控制。
 
-## How to use
-Check the usage.md file for a detailed explanation of how to use the extension.  
-Also check my article on [CivitAI](https://civitai.com/articles/3357/ranbooru-the-comprehensive-guide).
+## 面板参数说明
+- `Booru`：选择数据源站点。
+- `Max Pages`：随机选择的最大页面数。
+- `Post ID`：指定图片 ID；不填则随机抽取。
+- `Tags to Search (Pre)`：参与搜索的标签（逗号分隔）。
+- `Tags to Remove (Post)`：生成后要移除的标签；支持通配符 `*`（如 `hair*`）。
+- `Mature Rating`：按站点支持选择分级（NSFW/SFW 等）。
+- `Remove bad tags`：移除水印、文字、打码等无用标签。
+- `Shuffle tags`：打乱标签顺序。
+- `Convert "_" to spaces`：将下划线转为空格。
+- `Use same prompt for all images`：同一批次使用相同提示词。
+- `Fringe Benefits`（Gelbooru）：启用网站隐藏内容（等价于站点设置的显示全部内容）。
+- `Limit tags`/`Max tags`：限制标签保留比例或最大数量。
+- `Change Background`/`Change Color`：通过添加/移除标签改变背景与色彩风格。
+- `Sorting Order`：按随机/高分/低分排序抽取。
+- `Img2Img` 区：`Use img2img`、`Send to Controlnet`、`Denoising`、`Use last image as img2img`、`Crop Center`、`Use Deepbooru`、`Deepbooru Tags Position`。
+- `File` 区：`Use tags_search.txt`、`Choose tags_search.txt`、`Use tags_remove.txt`、`Choose tags_remove.txt`、`Refresh`。
+- `Extra` 区：`Mix prompts`、`Mix amount`、`Chaos Mode`、`Chaos Amount %`、`Negative Mode`、`Use same seed`、`Use cache`。
+- `LoRAnado` 区：`Lock previous LoRAs`、`LoRAs Subfolder`、`LoRAs Amount`、`Min/Max LoRAs Weight`、`LoRAs Custom Weights`。
 
-## Changelog
-### 1.2
-- Added the ability to use txt files for search and remove tags
-- Added the ability to use * in the remove tags to remove every tag that contains the word (also works with the tags:remove.txt)
+## 凭证与隐私
+- Gelbooru 与 Rule34 的 API 调用可能需要凭证：`API Key` 与 `User ID`。
+- 在选择站点后，面板会显示对应的输入框，并提供 `Save credentials` 选项。
+- 勾选保存后，凭证会持久化到：
+  - `extensions/sd-webui-ranbooru-forge/user/credentials/credentials.json`
+- 当保存成功时，UI 会隐藏输入框并显示状态信息；你可以随时点击 `Clear saved credentials` 清除。
 
-## Known Issues
-- The chaos mode and negative mode can return an error when using a batch size greater than 1 combined with a batch count greater than 1. Rerunning the batch usually fixes the issue.
-- "sd-dynamic-prompts" creates problems with the multiple prompts option. Disabling the extension is the only solution for now.
-- Right now to run the img2img the extension creates an img with 1 step before creating the actual image. I don't know how to fix this, if someone want to help me with this I'd be grateful.
-- Send to controlnet needs an dummy image to work.
+## 使用示例
+- 基础搜索：设置 `Booru`、`Tags to Search (Pre)`、选择分级与排序，点击 `生成提示词`。
+- 指定 Post ID：在支持站点填写 `Post ID`，可直接抽取该图标签。
+- Img2Img：勾选 `Use img2img`、设置 `Denoising`，可选 `Use last image` 搭配上轮图片；如需发送到 ControlNet，打开 `Send to Controlnet` 并设置强度。
+- Deepbooru：勾选 `Use Deepbooru` 并选择标签位置（前/后/替换），用于自动补充图像标签。
+- LoRAnado：设置 LoRA 文件夹、数量与权重范围，自动为提示词加上随机 LoRA 调用。
 
-## Found an issue?  
-If you found an issue with the extension, please report it in the issues section of this repository.  
-Special thanks to [TheGameratorT](https://github.com/TheGameratorT), [SmashinFries](https://github.com/SmashinFries), and [w-e-w](https://github.com/w-e-w) for contributing.
+## 已知问题
+- 在批次较大时，`Chaos/Negative` 模式可能报错；重跑通常可恢复。
+- 与 `sd-dynamic-prompts` 同用时，多提示词模式可能冲突；建议暂时关闭该扩展。
+- 当前 `Img2Img` 会先生成一个 1 步的占位图再进行正式生成。
+- 发送到 ControlNet 需要一个占位图像作为输入。
 
-## Check out my other scripts
-- [Ranbooru for ComfyUI](https://github.com/Inzaniak/comfyui-ranbooru)
-- [Workflow](https://github.com/Inzaniak/sd-webui-workflow)
+## 反馈与支持
+- 欢迎在 Issues 中反馈问题或提出改进建议。
+- 如果你需要更详细的操作说明，可参考 `usage.md`（示例与说明）。
 
 ---
-## Made by Inzaniak
-![Alt text](pics/logo.png) 
-
-
-If you'd like to support my work feel free to check out my Patreon: https://www.patreon.com/Inzaniak
-
-Also check my other links:
-- **Personal Website**: https://inzaniak.github.io 
-- **Deviant Art**: https://www.deviantart.com/inzaniak
-- **CivitAI**: https://civitai.com/user/Inzaniak/models
+本项目基于社区版本改造与增强，感谢原作者及贡献者的工作。
