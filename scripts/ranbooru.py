@@ -690,7 +690,10 @@ class Script(scripts.Script):
         self.action_row[i2i] = gr.Row()
 
     def set_prompt_area(self, i2i, component):
-        self.prompt_area[i2i] = component.component
+        try:
+            self.prompt_area[i2i] = component.component if hasattr(component, "component") else component
+        except Exception:
+            self.prompt_area[i2i] = None
     previous_loras = ''
     last_img = []
     real_steps = 0
