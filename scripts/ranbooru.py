@@ -506,7 +506,7 @@ class Danbooru(Booru):
 class e621(Booru):
 
     def __init__(self):
-        super().__init__('danbooru', f'https://e621.net/posts.json?limit={POST_AMOUNT}')
+        super().__init__('e621', f'https://e621.net/posts.json?limit={POST_AMOUNT}')
 
     def get_data(self, add_tags, max_pages=10, id=''):
         global COUNT
@@ -540,7 +540,7 @@ class e621(Booru):
         return {'post': data}
 
     def get_post(self, add_tags, max_pages=10, id=''):
-        self.get_data(add_tags, max_pages, "&id=" + id)
+        return self.get_data(add_tags, max_pages, "&id=" + id)
 
 
 def generate_chaos(pos_tags, neg_tags, chaos_amount):
@@ -1041,10 +1041,15 @@ class Script(scripts.Script):
             if ',' in remove_tags:
                 bad_tags.extend(remove_tags.split(','))
             else:
-                bad_tags.append(remove_tags)
+                if remove_tags:
+                    bad_tags.append(remove_tags)
 
-            if use_remove_txt:
-                bad_tags.extend(open(os.path.join(user_remove_dir, choose_remove_txt), 'r').read().split(','))
+            if use_remove_txt and choose_remove_txt:
+                file_path = os.path.join(user_remove_dir, choose_remove_txt)
+                if os.path.isfile(file_path):
+                    bad_tags.extend(open(file_path, 'r').read().split(','))
+                else:
+                    print('Selected remove file not found; skipping')
 
             # Manage Backgrounds
             background_options = {
@@ -1072,16 +1077,20 @@ class Script(scripts.Script):
                 else:
                     p.prompt = f'{p.prompt},{color_option}' if p.prompt else color_option
 
-            if use_search_txt:
-                search_tags = open(os.path.join(user_search_dir, choose_search_txt), 'r').read()
-                search_tags_r = search_tags.replace(" ", "")
-                split_tags = search_tags_r.splitlines()
-                filtered_tags = [line for line in split_tags if line.strip()]
-                if filtered_tags:
-                    selected_tags = random.choice(filtered_tags)
-                    tags = f'{tags},{selected_tags}' if tags else selected_tags
+            if use_search_txt and choose_search_txt:
+                file_path = os.path.join(user_search_dir, choose_search_txt)
+                if os.path.isfile(file_path):
+                    search_tags = open(file_path, 'r').read()
+                    search_tags_r = search_tags.replace(" ", "")
+                    split_tags = search_tags_r.splitlines()
+                    filtered_tags = [line for line in split_tags if line.strip()]
+                    if filtered_tags:
+                        selected_tags = random.choice(filtered_tags)
+                        tags = f'{tags},{selected_tags}' if tags else selected_tags
+                    else:
+                        print('No tags found in search file; skipping')
                 else:
-                    print('No tags found in search file; skipping')
+                    print('Selected search file not found; skipping')
 
             add_tags = '&tags=-animated'
             if tags:
@@ -1279,7 +1288,7 @@ class Script(scripts.Script):
                     p.prompt = [remove_repeated_tags(pr) for pr in p.prompt]
                 else:
                     p.prompt = modify_prompt(p.prompt, tagged_prompts, type_deepbooru)
-                    p.prompt = remove_repeated_tags(p.prompt[0])
+                    p.prompt = remove_repeated_tags(p.prompt)
 
             if use_img2img:
                 if not use_ip:
@@ -1343,7 +1352,7 @@ class Script(scripts.Script):
         else:
             for num, img in enumerate(self.last_img):
                 processed.images.append(img)
-                processed.infotexts.append(proc.infotexts[num + 1])
+                processed.infotexts.append('')
 
     def generate_prompts_only(self, booru, max_pages, post_id, tags, remove_bad_tags, remove_tags, change_background, change_color, shuffle_tags, change_dash, mix_prompt, mix_amount, use_search_txt, choose_search_txt, use_remove_txt, choose_remove_txt, fringe_benefits, use_cache, api_key, user_id, save_credentials, mature_rating, sorting_order, limit_tags, max_tags):
         max_pages = int(max_pages)
@@ -1384,6 +1393,8 @@ class Script(scripts.Script):
             'rule34': Rule34(rule34_api_key, rule34_user_id),
             'safebooru': Safebooru(),
             'danbooru': Danbooru(),
+            'konachan': Konachan(),
+            'yande.re': Yandere(),
             'aibooru': AIBooru(),
             'xbooru': XBooru(),
             'e621': e621(),
@@ -1397,8 +1408,12 @@ class Script(scripts.Script):
         else:
             if remove_tags:
                 bad_tags.append(remove_tags)
-        if use_remove_txt:
-            bad_tags.extend(open(os.path.join(user_remove_dir, choose_remove_txt), 'r').read().split(','))
+        if use_remove_txt and choose_remove_txt:
+            file_path = os.path.join(user_remove_dir, choose_remove_txt)
+            if os.path.isfile(file_path):
+                bad_tags.extend(open(file_path, 'r').read().split(','))
+            else:
+                print('Selected remove file not found; skipping')
 
         prompt_addition = ''
         background_options = {
@@ -1423,14 +1438,18 @@ class Script(scripts.Script):
             else:
                 prompt_addition = f'{prompt_addition},{co}' if prompt_addition else co
 
-        if use_search_txt:
-            search_tags = open(os.path.join(user_search_dir, choose_search_txt), 'r').read()
-            search_tags_r = search_tags.replace(' ', '')
-            split_tags = search_tags_r.splitlines()
-            filtered_tags = [line for line in split_tags if line.strip()]
-            if filtered_tags:
-                selected_tags = random.choice(filtered_tags)
-                tags = f'{tags},{selected_tags}' if tags else selected_tags
+        if use_search_txt and choose_search_txt:
+            file_path = os.path.join(user_search_dir, choose_search_txt)
+            if os.path.isfile(file_path):
+                search_tags = open(file_path, 'r').read()
+                search_tags_r = search_tags.replace(' ', '')
+                split_tags = search_tags_r.splitlines()
+                filtered_tags = [line for line in split_tags if line.strip()]
+                if filtered_tags:
+                    selected_tags = random.choice(filtered_tags)
+                    tags = f'{tags},{selected_tags}' if tags else selected_tags
+            else:
+                print('Selected search file not found; skipping')
 
         add_tags = '&tags=-animated'
         if tags:
@@ -1547,12 +1566,12 @@ class Script(scripts.Script):
             list: the tagged prompts
         """
         if model == 'deepbooru':
-            if isinstance(self.original_prompt, str):
-                orig_prompt = [self.original_prompt]
-            else:
-                orig_prompt = self.original_prompt
             deepbooru.model.start()
-            for img, prompt in zip(self.last_img, orig_prompt):
-                final_prompts = [prompt + ',' + deepbooru.model.tag_multi(img) for img in self.last_img]
-            deepbooru.model.stop()
+            try:
+                tags = [deepbooru.model.tag_multi(img) for img in self.last_img]
+            finally:
+                deepbooru.model.stop()
+            if isinstance(self.original_prompt, list):
+                return tags
+            return tags[0] if tags else ''
             return final_prompts
