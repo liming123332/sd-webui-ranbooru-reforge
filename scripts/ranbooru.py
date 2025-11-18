@@ -167,7 +167,10 @@ class Booru():
         self.booru = booru
         self.base_url = booru_url
         self.booru_url = booru_url
-        self.headers = {'user-agent': 'my-app/0.0.1'}
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*'
+        }
 
     def get_data(self, add_tags, max_pages=10, id=''):
         pass
@@ -350,11 +353,20 @@ class Konachan(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
+            page = max(1, random.randint(1, max_pages))
+            url = f"{self.base_url}&page={page}{id}{add_tags}"
             self.booru_url = url
-            res = requests.get(url, timeout=10)
+            res = requests.get(url, headers=self.headers, timeout=10)
             if res.status_code != 200:
-                data = []
+                fallback_url = url.replace('konachan.com', 'konachan.net')
+                res = requests.get(fallback_url, headers=self.headers, timeout=10)
+                if res.status_code != 200:
+                    data = []
+                else:
+                    try:
+                        data = res.json()
+                    except Exception:
+                        data = []
             else:
                 try:
                     data = res.json()
@@ -389,11 +401,11 @@ class Yandere(Booru):
         for loop in range(2): # run loop at most twice
             if id:
                 add_tags = ''
-            page = random.randint(0, max_pages-1)
+            page = max(1, random.randint(1, max_pages))
             extras = '&filter=1&include_tags=1&include_votes=1&include_pools=1'
             url = f"{self.base_url}&limit={POST_AMOUNT}&page={page}{id}{add_tags}{extras}"
             self.booru_url = url
-            res = requests.get(url, timeout=10)
+            res = requests.get(url, headers=self.headers, timeout=10)
             posts = []
             if res.status_code == 200:
                 try:
@@ -471,7 +483,13 @@ class Danbooru(Booru):
             url = f"{self.base_url}&page={random.randint(0, max_pages-1)}{id}{add_tags}"
             self.booru_url = url
             res = requests.get(url, headers=self.headers, timeout=10)
-            data = res.json()
+            if res.status_code != 200:
+                data = []
+            else:
+                try:
+                    data = res.json()
+                except Exception:
+                    data = []
             if not isinstance(data, list):
                 try:
                     data = data.get('posts', [])
@@ -812,7 +830,7 @@ class Script(scripts.Script):
                         enabled = gr.Checkbox(label="Enabled", value=False)
                         with gr.Row():
                             with gr.Column(scale=1):
-                                booru = gr.Dropdown(["safebooru", "rule34", "danbooru", "gelbooru", 'aibooru', 'xbooru', 'e621'], label="Booru", value="safebooru")
+                                booru = gr.Dropdown(["safebooru", "rule34", "danbooru", "gelbooru", "konachan", "yande.re", 'aibooru', 'xbooru', 'e621'], label="Booru", value="safebooru")
                                 max_pages = gr.Number(label="Max Pages", minimum=1, maximum=9999, value=100, step=1, precision=0)
                                 gr.Markdown("""## Post""")
                                 post_id = gr.Textbox(lines=1, label="Post ID")
