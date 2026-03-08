@@ -7,7 +7,7 @@
 ## 安装
 - 方式一（推荐）：将仓库克隆到 WebUI 的 `extensions` 目录：
   ```bash
-  git clone https://github.com/liming123332/sd-webui-ranbooru-forge.git extensions/sd-webui-ranbooru-forge
+  git clone -b kemomimi --single-branch https://github.com/Rivulet138/sd-webui-ranbooru-reforge.git extensions/sd-webui-ranbooru-reforge
   ```
 - 方式二：将 `scripts/ranbooru.py` 复制到你的扩展目录中。
 
