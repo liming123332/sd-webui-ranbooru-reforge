@@ -31,9 +31,127 @@ user_data_dir = os.path.join(extension_root, 'user')
 user_search_dir = os.path.join(user_data_dir, 'search')
 user_remove_dir = os.path.join(user_data_dir, 'remove')
 user_credentials_dir = os.path.join(user_data_dir, 'credentials')
+user_cache_dir = os.path.join(user_data_dir, 'cache')
 os.makedirs(user_search_dir, exist_ok=True)
 os.makedirs(user_remove_dir, exist_ok=True)
 os.makedirs(user_credentials_dir, exist_ok=True)
+os.makedirs(user_cache_dir, exist_ok=True)
+
+# ─── Global constant: default bad tags (with underscore and space variants) ───
+DEFAULT_BAD_TAGS = [
+    # underscore variants
+    'mixed-language_text', 'watermark', 'text', 'english_text', 'speech_bubble',
+    'signature', 'artist_name', 'censored', 'bar_censor', 'translation',
+    'twitter_username', 'twitter_logo', 'patreon_username', 'commentary_request',
+    'tagme', 'commentary', 'character_name', 'mosaic_censoring', 'instagram_username',
+    'text_focus', 'english_commentary', 'comic', 'translation_request', 'fake_text',
+    'translated', 'paid_reward_available', 'thought_bubble', 'multiple_views',
+    'silent_comic', 'out-of-frame_censoring', 'symbol-only_commentary', '3koma',
+    '2koma', 'character_watermark', 'spoken_question_mark', 'japanese_text',
+    'spanish_text', 'language_text', 'fanbox_username', 'commission', 'original',
+    'ai_generated', 'stable_diffusion', 'tagme_(artist)', 'text_bubble', 'qr_code',
+    'chinese_commentary', 'korean_text', 'partial_commentary', 'chinese_text',
+    'copyright_request', 'heart_censor', 'censored_nipples', 'page_number', 'scan',
+    'fake_magazine_cover', 'korean_commentary',
+    'sample_watermark', 'copyright_notice', 'copyright_name', 'album_cover', 'company_name',
+    # space variants
+    'mixed language text', 'english text', 'speech bubble', 'artist name', 'bar censor',
+    'twitter username', 'twitter logo', 'patreon username', 'commentary request',
+    'character name', 'mosaic censoring', 'instagram username', 'text focus',
+    'english commentary', 'translation request', 'fake text', 'thought bubble',
+    'multiple views', 'silent comic', 'out of frame censoring',
+    'symbol only commentary', 'character watermark', 'spoken question mark',
+    'japanese text', 'spanish text', 'language text', 'fanbox username',
+    'ai generated', 'stable diffusion', 'tagme (artist)', 'text bubble',
+    'chinese commentary', 'korean text', 'partial commentary', 'chinese text',
+    'copyright request', 'heart censor', 'censored nipples', 'page number',
+    'fake magazine cover', 'korean commentary',
+    'sample watermark', 'copyright notice', 'copyright name', 'album cover', 'company name',
+]
+
+# ─── Tag cache manager ───────────────────────────────────────────────────────
+class TagCacheManager:
+    """管理批量爬取的 tag 缓存与顺序索引"""
+
+    def __init__(self, cache_dir):
+        self.cache_dir = cache_dir
+        self.cache_file = os.path.join(cache_dir, 'tag_cache.json')
+        self.index_file = os.path.join(cache_dir, 'cache_index.json')
+
+    # ── 缓存读写 ──────────────────────────────────────────────────────────
+    def load_cache(self):
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return data if isinstance(data, list) else []
+            except (json.JSONDecodeError, IOError):
+                return []
+        return []
+
+    def save_cache(self, tags_list):
+        with open(self.cache_file, 'w', encoding='utf-8') as f:
+            json.dump(tags_list, f, ensure_ascii=False, indent=2)
+
+    def append_cache(self, tags_list):
+        existing = self.load_cache()
+        existing.extend(tags_list)
+        self.save_cache(existing)
+        return len(existing)
+
+    # ── 索引读写 ──────────────────────────────────────────────────────────
+    def get_index(self):
+        if os.path.exists(self.index_file):
+            try:
+                with open(self.index_file, 'r') as f:
+                    data = json.load(f)
+                    return int(data.get('index', 0))
+            except (json.JSONDecodeError, IOError, ValueError):
+                return 0
+        return 0
+
+    def save_index(self, index):
+        with open(self.index_file, 'w') as f:
+            json.dump({'index': index}, f)
+
+    def reset_index(self):
+        self.save_index(0)
+
+    # ── 顺序取出 ──────────────────────────────────────────────────────────
+    def get_next_tags(self, loop=False):
+        """返回 (tags_str | None, new_index, total)"""
+        cache = self.load_cache()
+        total = len(cache)
+        if total == 0:
+            return None, 0, 0
+        index = self.get_index()
+        if index >= total:
+            if loop:
+                index = 0
+            else:
+                return None, index, total
+        tags = cache[index]
+        self.save_index(index + 1)
+        return tags, index + 1, total
+
+    # ── 删除 ──────────────────────────────────────────────────────────────
+    def delete_cache(self):
+        for fp in (self.cache_file, self.index_file):
+            if os.path.exists(fp):
+                os.remove(fp)
+
+    # ── 状态 ──────────────────────────────────────────────────────────────
+    def get_status(self):
+        cache = self.load_cache()
+        total = len(cache)
+        index = self.get_index()
+        if total == 0:
+            return "缓存为空"
+        remaining = max(total - index, 0)
+        return f"缓存总数: {total} | 当前索引: {index} | 剩余: {remaining}"
+
+
+tag_cache_manager = TagCacheManager(user_cache_dir)
 
 # Initialize credentials manager
 class CredentialsManager:
@@ -139,15 +257,15 @@ RATINGS = {
 
 
 def get_available_ratings(booru):
-    mature_ratings = gr.Radio.update(choices=RATINGS[booru].keys(), value="All")
+    mature_ratings = gr.update(choices=list(RATINGS[booru].keys()), value="All")
     return mature_ratings
 
 
 def show_fringe_benefits(booru):
     if booru == 'gelbooru':
-        return gr.Checkbox.update(visible=True)
+        return gr.update(visible=True)
     else:
-        return gr.Checkbox.update(visible=False)
+        return gr.update(visible=False)
 
 
 def check_exception(booru, parameters):
@@ -220,6 +338,27 @@ class Gelbooru(Booru):
             break
         return data
 
+    def get_data_page(self, add_tags, page=0, id=''):
+        """Fetch a specific page (used by batch cache)."""
+        global COUNT
+        if id:
+            add_tags = ''
+        api_params = f"&pid={page}{id}{add_tags}"
+        if self.api_key and self.user_id:
+            api_params += f"&api_key={self.api_key}&user_id={self.user_id}"
+        url = f"{self.base_url}{api_params}"
+        self.booru_url = url
+        if self.fringeBenefits:
+            res = requests.get(url, cookies={'fringeBenefits': 'yup'}, timeout=10)
+        else:
+            res = requests.get(url, timeout=10)
+        try:
+            data = res.json()
+        except Exception:
+            data = {'@attributes': {'count': 0}, 'post': []}
+        COUNT = data.get('@attributes', {}).get('count', 0)
+        return data
+
     def get_post(self, add_tags, max_pages=10, id=''):
         return self.get_data(add_tags, max_pages, "&id=" + id)
 
@@ -255,6 +394,20 @@ class XBooru(Booru):
             else:
                 print(f" Processing {max_pages*POST_AMOUNT} out of {COUNT} results.")
             break
+        return {'post': data}
+
+    def get_data_page(self, add_tags, page=0, id=''):
+        global COUNT
+        if id:
+            add_tags = ''
+        url = f"{self.base_url}&pid={page}{id}{add_tags}"
+        self.booru_url = url
+        res = requests.get(url, timeout=10)
+        data = res.json()
+        COUNT = 0
+        for post in data:
+            post['file_url'] = f"https://xbooru.com/images/{post['directory']}/{post['image']}"
+            COUNT += 1
         return {'post': data}
 
     def get_post(self, add_tags, max_pages=10, id=''):
@@ -299,6 +452,24 @@ class Rule34(Booru):
             break
         return {'post': data}
 
+    def get_data_page(self, add_tags, page=0, id=''):
+        global COUNT
+        if id:
+            add_tags = ''
+        url = f"{self.base_url}&pid={page}{id}{add_tags}"
+        if self.api_key and self.user_id:
+            url += f"&api_key={self.api_key}&user_id={self.user_id}"
+        self.booru_url = url
+        res = requests.get(url, timeout=10)
+        try:
+            data = res.json()
+        except Exception:
+            data = []
+        if not isinstance(data, list):
+            data = []
+        COUNT = len(data)
+        return {'post': data}
+
     def get_post(self, add_tags, max_pages=10, id=''):
         return self.get_data(add_tags, max_pages, "&id=" + id)
 
@@ -333,6 +504,20 @@ class Safebooru(Booru):
             else:
                 print(f" Processing {max_pages*POST_AMOUNT} out of {COUNT} results.")
             break
+        return {'post': data}
+
+    def get_data_page(self, add_tags, page=0, id=''):
+        global COUNT
+        if id:
+            add_tags = ''
+        url = f"{self.base_url}&pid={page}{id}{add_tags}"
+        self.booru_url = url
+        res = requests.get(url, timeout=10)
+        data = res.json()
+        COUNT = 0
+        for post in data:
+            post['file_url'] = f"https://safebooru.org/images/{post['directory']}/{post['image']}"
+            COUNT += 1
         return {'post': data}
 
     def get_post(self, add_tags, max_pages=10, id=''):
@@ -372,6 +557,23 @@ class Konachan(Booru):
             else:
                 print(f"Found enough results")
             break
+        return {'post': data}
+
+    def get_data_page(self, add_tags, page=0, id=''):
+        global COUNT
+        if id:
+            add_tags = ''
+        url = f"{self.base_url}&page={page}{id}{add_tags}"
+        self.booru_url = url
+        res = requests.get(url, timeout=10)
+        if res.status_code != 200:
+            data = []
+        else:
+            try:
+                data = res.json()
+            except Exception:
+                data = []
+        COUNT = len(data)
         return {'post': data}
 
     def get_post(self, add_tags, max_pages=10, id=''):
@@ -418,6 +620,27 @@ class Yandere(Booru):
             break
         return {'post': posts}
 
+    def get_data_page(self, add_tags, page=0, id=''):
+        global COUNT
+        if id:
+            add_tags = ''
+        extras = '&filter=1&include_tags=1&include_votes=1&include_pools=1'
+        url = f"{self.base_url}&limit={POST_AMOUNT}&page={page}{id}{add_tags}{extras}"
+        self.booru_url = url
+        res = requests.get(url, timeout=10)
+        posts = []
+        if res.status_code == 200:
+            try:
+                data = res.json()
+                if isinstance(data, dict):
+                    posts = data.get('posts', [])
+                elif isinstance(data, list):
+                    posts = data
+            except Exception:
+                posts = []
+        COUNT = len(posts)
+        return {'post': posts}
+
     def get_post(self, add_tags, max_pages=10, id=''):
         raise Exception("Yande.re does not support post IDs")
 
@@ -451,6 +674,19 @@ class AIBooru(Booru):
             else:
                 print(f"Found enough results")
             break
+        return {'post': data}
+
+    def get_data_page(self, add_tags, page=0, id=''):
+        global COUNT
+        if id:
+            add_tags = ''
+        url = f"{self.base_url}&page={page}{id}{add_tags}"
+        self.booru_url = url
+        res = requests.get(url)
+        data = res.json()
+        for post in data:
+            post['tags'] = post['tag_string']
+        COUNT = len(data)
         return {'post': data}
 
     def get_post(self, add_tags, max_pages=10, id=''):
@@ -494,6 +730,25 @@ class Danbooru(Booru):
             break
         return {'post': data}
 
+    def get_data_page(self, add_tags, page=0, id=''):
+        global COUNT
+        if id:
+            add_tags = ''
+        url = f"{self.base_url}&page={page}{id}{add_tags}"
+        self.booru_url = url
+        res = requests.get(url, headers=self.headers, timeout=10)
+        data = res.json()
+        if not isinstance(data, list):
+            try:
+                data = data.get('posts', [])
+            except AttributeError:
+                data = []
+        for post in data:
+            if isinstance(post, dict):
+                post['tags'] = post.get('tag_string', '')
+        COUNT = len(data)
+        return {'post': data}
+
     def get_post(self, add_tags, max_pages=10, id=''):
         self.booru_url = f"https://danbooru.donmai.us/posts/{id}.json"
         res = requests.get(self.booru_url, headers=self.headers, timeout=10)
@@ -508,6 +763,16 @@ class e621(Booru):
     def __init__(self):
         super().__init__('danbooru', f'https://e621.net/posts.json?limit={POST_AMOUNT}')
 
+    def _normalize_posts(self, data):
+        """Normalize e621 post format."""
+        for post in data:
+            temp_tags = []
+            sublevels = ['general', 'artist', 'copyright', 'character', 'species']
+            for sublevel in sublevels:
+                temp_tags.extend(post['tags'][sublevel])
+            post['tags'] = ' '.join(temp_tags)
+            post['score'] = post['score']['total']
+
     def get_data(self, add_tags, max_pages=10, id=''):
         global COUNT
         loop_msg = True # avoid showing same msg twice
@@ -519,13 +784,7 @@ class e621(Booru):
             res = requests.get(url, headers=self.headers, timeout=10)
             data = res.json()['posts']
             COUNT = len(data)
-            for post in data:
-                temp_tags = []
-                sublevels = ['general', 'artist', 'copyright', 'character', 'species']
-                for sublevel in sublevels:
-                    temp_tags.extend(post['tags'][sublevel])
-                post['tags'] = ' '.join(temp_tags)
-                post['score'] = post['score']['total']
+            self._normalize_posts(data)
             if COUNT <= max_pages*POST_AMOUNT:
                 max_pages = COUNT // POST_AMOUNT+1
                 # If max_pages is bigger than available pages, loop the function with updated max_pages based on the value of COUNT
@@ -539,8 +798,20 @@ class e621(Booru):
             break
         return {'post': data}
 
+    def get_data_page(self, add_tags, page=0, id=''):
+        global COUNT
+        if id:
+            add_tags = ''
+        url = f"{self.base_url}&page={page}{id}{add_tags}"
+        self.booru_url = url
+        res = requests.get(url, headers=self.headers, timeout=10)
+        data = res.json()['posts']
+        COUNT = len(data)
+        self._normalize_posts(data)
+        return {'post': data}
+
     def get_post(self, add_tags, max_pages=10, id=''):
-        self.get_data(add_tags, max_pages, "&id=" + id)
+        return self.get_data(add_tags, max_pages, "&id=" + id)
 
 
 def generate_chaos(pos_tags, neg_tags, chaos_amount):
@@ -667,8 +938,125 @@ def limit_prompt_tags(prompt, limit_tags, mode):
     if mode == 'Limit':
         clean_prompt = clean_prompt[:int(len(clean_prompt) * limit_tags)]
     elif mode == 'Max':
-        clean_prompt = clean_prompt[:limit_tags]
+        clean_prompt = clean_prompt[:int(limit_tags)]
     return ','.join(clean_prompt)
+
+
+# ─── 批量爬取辅助函数 ─────────────────────────────────────────────────────────
+def batch_fetch_tags(booru_name, tags_search, max_pages, fringe_benefits,
+                     remove_bad_tags, remove_tags_str, shuffle_tags, change_dash,
+                     limit_tags, max_tags, mature_rating,
+                     api_key='', user_id_str='', save_credentials=False,
+                     use_remove_txt=False, choose_remove_txt=''):
+    """从 booru 批量抓取多页帖子的 tags，返回 cleaned tag 字符串列表"""
+    max_pages = int(max_pages)
+
+    gelbooru_api_key = None
+    gelbooru_user_id = None
+    rule34_api_key = None
+    rule34_user_id = None
+    if booru_name == 'gelbooru':
+        if api_key.strip() and user_id_str.strip():
+            gelbooru_api_key = api_key.strip()
+            gelbooru_user_id = user_id_str.strip()
+            if save_credentials:
+                credentials_manager.save_booru_credentials('gelbooru', gelbooru_api_key, gelbooru_user_id)
+        else:
+            saved = credentials_manager.get_booru_credentials('gelbooru')
+            gelbooru_api_key = saved.get('api_key', '')
+            gelbooru_user_id = saved.get('user_id', '')
+    if booru_name == 'rule34':
+        if api_key.strip() and user_id_str.strip():
+            rule34_api_key = api_key.strip()
+            rule34_user_id = user_id_str.strip()
+            if save_credentials:
+                credentials_manager.save_booru_credentials('rule34', rule34_api_key, rule34_user_id)
+        else:
+            saved = credentials_manager.get_booru_credentials('rule34')
+            rule34_api_key = saved.get('api_key', '')
+            rule34_user_id = saved.get('user_id', '')
+
+    booru_apis = {
+        'gelbooru': Gelbooru(fringe_benefits, gelbooru_api_key, gelbooru_user_id),
+        'rule34': Rule34(rule34_api_key, rule34_user_id),
+        'safebooru': Safebooru(),
+        'danbooru': Danbooru(),
+        'konachan': Konachan(),
+        'yande.re': Yandere(),
+        'aibooru': AIBooru(),
+        'xbooru': XBooru(),
+        'e621': e621(),
+    }
+
+    api = booru_apis.get(booru_name, Gelbooru(fringe_benefits, gelbooru_api_key, gelbooru_user_id))
+
+    add_tags = '&tags=-animated'
+    if tags_search:
+        add_tags += '+' + tags_search.replace(',', '+')
+        if mature_rating != 'All' and booru_name in RATINGS:
+            rating_val = RATINGS[booru_name].get(mature_rating)
+            if rating_val and rating_val != 'All':
+                add_tags += f'+rating:{rating_val}'
+
+    # Build bad_tags
+    bad_tags = []
+    if remove_bad_tags:
+        bad_tags = list(DEFAULT_BAD_TAGS)
+    if remove_tags_str:
+        if ',' in remove_tags_str:
+            bad_tags.extend(remove_tags_str.split(','))
+        else:
+            bad_tags.append(remove_tags_str)
+    if use_remove_txt and choose_remove_txt:
+        try:
+            bad_tags.extend(open(os.path.join(user_remove_dir, choose_remove_txt), 'r').read().split(','))
+        except Exception:
+            pass
+
+    all_tags = []
+    for page in range(max_pages):
+        try:
+            if hasattr(api, 'get_data_page'):
+                data = api.get_data_page(add_tags, page=page)
+            else:
+                data = api.get_data(add_tags, max_pages=1)
+            posts = data.get('post', [])
+            if not isinstance(posts, list):
+                posts = []
+            if len(posts) == 0:
+                print(f"[TagCache] 第 {page+1} 页无数据，停止抓取")
+                break
+            for post in posts:
+                if not isinstance(post, dict):
+                    continue
+                raw_tags = post.get('tags', '')
+                if not raw_tags:
+                    continue
+                clean = raw_tags.replace('(', r'\(').replace(')', r'\)')
+                tag_list = clean.split(' ')
+                if shuffle_tags:
+                    random.shuffle(tag_list)
+                # Remove bad tags
+                tag_list = [t for t in tag_list if t.strip() not in bad_tags]
+                for bt in bad_tags:
+                    if '*' in bt:
+                        tag_list = [t for t in tag_list if bt.replace('*', '') not in t]
+                prompt_str = ','.join(tag_list)
+                if change_dash:
+                    prompt_str = prompt_str.replace('_', ' ')
+                if limit_tags < 1:
+                    prompt_str = limit_prompt_tags(prompt_str, limit_tags, 'Limit')
+                if max_tags > 0:
+                    prompt_str = limit_prompt_tags(prompt_str, int(max_tags), 'Max')
+                if prompt_str.strip():
+                    all_tags.append(prompt_str)
+            print(f"[TagCache] 第 {page+1}/{max_pages} 页完成，获取 {len(posts)} 条")
+        except Exception as ex:
+            print(f"[TagCache] 第 {page+1} 页出错: {ex}")
+            break
+
+    return all_tags
+
 
 class Script(scripts.Script):
     def __init__(self):
@@ -697,7 +1085,7 @@ class Script(scripts.Script):
     previous_loras = ''
     last_img = []
     real_steps = 0
-    version = "1.2"
+    version = "1.3"
     original_prompt = ''
 
     def get_files(self, path):
@@ -785,6 +1173,75 @@ class Script(scripts.Script):
     def refresh_rem(self):
         return gr.update(choices=self.get_files(user_remove_dir))
 
+    # ─── Tag Cache 面板回调 ───────────────────────────────────────────────
+    @staticmethod
+    def _cache_batch_fetch(booru, tags_search, max_pages, fringe_benefits,
+                           remove_bad_tags, remove_tags_str, shuffle_tags,
+                           change_dash, limit_tags, max_tags, mature_rating,
+                           api_key, user_id_str, save_credentials,
+                           use_remove_txt, choose_remove_txt, append_mode):
+        """批量爬取并保存到缓存"""
+        try:
+            tags_list = batch_fetch_tags(
+                booru, tags_search, max_pages, fringe_benefits,
+                remove_bad_tags, remove_tags_str, shuffle_tags, change_dash,
+                limit_tags, max_tags, mature_rating,
+                api_key, user_id_str, save_credentials,
+                use_remove_txt, choose_remove_txt
+            )
+            if not tags_list:
+                return "未抓取到任何 tag 数据", tag_cache_manager.get_status()
+            if append_mode:
+                total = tag_cache_manager.append_cache(tags_list)
+                msg = f"✅ 追加完成！本次新增 {len(tags_list)} 条，缓存总计 {total} 条"
+            else:
+                tag_cache_manager.save_cache(tags_list)
+                tag_cache_manager.reset_index()
+                msg = f"✅ 覆盖保存完成！共 {len(tags_list)} 条（索引已重置）"
+            return msg, tag_cache_manager.get_status()
+        except Exception as ex:
+            return f"❌ 错误: {ex}", tag_cache_manager.get_status()
+
+    @staticmethod
+    def _cache_get_next(loop_mode):
+        """从缓存顺序取出下一条"""
+        tags, idx, total = tag_cache_manager.get_next_tags(loop=loop_mode)
+        if tags is None:
+            if total == 0:
+                return "缓存为空，请先批量爬取", tag_cache_manager.get_status()
+            else:
+                return f"已到达缓存末尾 (索引 {idx}/{total})", tag_cache_manager.get_status()
+        return tags, tag_cache_manager.get_status()
+
+    @staticmethod
+    def _cache_reset_index():
+        tag_cache_manager.reset_index()
+        return "✅ 索引已重置为 0", tag_cache_manager.get_status()
+
+    @staticmethod
+    def _cache_delete():
+        tag_cache_manager.delete_cache()
+        return "✅ 缓存文件已删除", tag_cache_manager.get_status()
+
+    @staticmethod
+    def _cache_refresh_status():
+        return tag_cache_manager.get_status()
+
+    @staticmethod
+    def _cache_get_next_and_set(loop_mode, tag_prompt_text, current_prompt):
+        """从缓存顺序取出下一条并设置到提示词"""
+        tags, idx, total = tag_cache_manager.get_next_tags(loop=loop_mode)
+        if tags is None:
+            if total == 0:
+                return "缓存为空，请先批量爬取", tag_cache_manager.get_status(), current_prompt
+            else:
+                return f"已到达缓存末尾 (索引 {idx}/{total})", tag_cache_manager.get_status(), current_prompt
+        if tag_prompt_text and tag_prompt_text.strip():
+            combined = f"{tag_prompt_text.strip()},{tags}"
+        else:
+            combined = tags
+        return tags, tag_cache_manager.get_status(), combined
+
     def ui(self, is_img2img):
         # Determine initial Gelbooru credential visibility based on saved credentials
         has_saved = credentials_manager.has_credentials('gelbooru')
@@ -819,7 +1276,7 @@ class Script(scripts.Script):
                                 gr.Markdown("""## Tags""")
                                 remove_tags = gr.Textbox(lines=1, label="Tags to Remove (Post)")
                                 with gr.Group():
-                                    with gr.Box():
+                                    with gr.Group():
                                         prompt_output = gr.Textbox(lines=3, label="提示词输出")
                             with gr.Column(scale=1):
                                 mature_rating = gr.Radio(list(RATINGS['safebooru']), label="Mature Rating", value="All")
@@ -878,12 +1335,51 @@ class Script(scripts.Script):
                             negative_mode = gr.Radio(["None", "Negative"], label="Negative Mode", value="None")
                             use_same_seed = gr.Checkbox(label="Use same seed for all pictures", value=False)
                             use_cache = gr.Checkbox(label="Use cache", value=True)
+
+                        # ─── Tag Cache 面板（中文 UI） ────────────────────────
+                        with gr.Accordion("Tag 缓存管理", open=False):
+                            gr.Markdown("### 📦 批量爬取 Tag 并缓存到本地")
+                            with gr.Row():
+                                cache_status_display = gr.Textbox(
+                                    label="缓存状态", value=tag_cache_manager.get_status(),
+                                    interactive=False, lines=1
+                                )
+                                cache_refresh_status_btn = gr.Button("🔄 刷新状态")
+
+                            gr.Markdown("#### 爬取设置")
+                            with gr.Row():
+                                cache_pages = gr.Number(label="爬取页数", minimum=1, maximum=100, value=5, step=1, precision=0)
+                                cache_append_mode = gr.Checkbox(label="追加模式（不覆盖已有缓存）", value=True)
+                            cache_fetch_btn = gr.Button("🚀 开始批量爬取", variant="primary")
+                            cache_fetch_result = gr.Textbox(label="爬取结果", interactive=False, lines=2)
+
+                            gr.Markdown("#### 顺序输出")
+                            with gr.Row():
+                                cache_loop_mode = gr.Checkbox(label="循环播放（到末尾后从头开始）", value=True)
+                            with gr.Row():
+                                cache_next_btn = gr.Button("▶ 取出下一条")
+                                cache_next_set_btn = gr.Button("▶ 取出并设置到提示词", variant="primary")
+                            cache_next_output = gr.Textbox(label="当前取出的 Tag", interactive=False, lines=3)
+                            
+                            # --- 新增部分开始 ---
+                            gr.Markdown("#### ⚙️ 生成设置")
+                            with gr.Row():
+                                use_local_cache_gen = gr.Checkbox(label="生成时使用此缓存", value=False)
+                                use_local_cache_loop = gr.Checkbox(label="生成时循环读取 (到末尾自动重头)", value=True)
+                            # --- 新增部分结束 ---
+
+                            gr.Markdown("#### 管理操作")
+                            with gr.Row():
+                                cache_reset_btn = gr.Button("🔁 重置索引")
+                                cache_delete_btn = gr.Button("🗑️ 删除缓存文件", variant="stop")
+                            cache_manage_result = gr.Textbox(label="操作结果", interactive=False, lines=1)
+
         with InputAccordion(False, label="LoRAnado", elem_id=self.elem_id("lo_enable")) as lora_enabled:
-            with gr.Box():
+            with gr.Group():
                 lora_lock_prev = gr.Checkbox(label="Lock previous LoRAs", value=False)
                 lora_folder = gr.Textbox(lines=1, label="LoRAs Subfolder")
                 lora_amount = gr.Slider(value=1, label="LoRAs Amount", minimum=1, maximum=10, step=1)
-            with gr.Box():
+            with gr.Group():
                 lora_min = gr.Slider(value=-1.0, label="Min LoRAs Weight", minimum=-1.0, maximum=1, step=0.1)
                 lora_max = gr.Slider(value=1.0, label="Max LoRAs Weight", minimum=-1.0, maximum=1.0, step=0.1)
                 lora_custom_weights = gr.Textbox(lines=1, label="LoRAs Custom Weights")
@@ -914,6 +1410,41 @@ class Script(scripts.Script):
             outputs=[api_key, user_id, credentials_status, clear_credentials_btn]
         )
 
+        # ─── Tag Cache 事件绑定 ───────────────────────────────────────────
+        cache_refresh_status_btn.click(
+            fn=self._cache_refresh_status,
+            inputs=[],
+            outputs=[cache_status_display]
+        )
+
+        cache_fetch_btn.click(
+            fn=self._cache_batch_fetch,
+            inputs=[booru, tags, cache_pages, fringe_benefits,
+                    remove_bad_tags, remove_tags, shuffle_tags,
+                    change_dash, limit_tags, max_tags, mature_rating,
+                    api_key, user_id, save_credentials,
+                    use_remove_txt, choose_remove_txt, cache_append_mode],
+            outputs=[cache_fetch_result, cache_status_display]
+        )
+
+        cache_next_btn.click(
+            fn=self._cache_get_next,
+            inputs=[cache_loop_mode],
+            outputs=[cache_next_output, cache_status_display]
+        )
+
+        cache_reset_btn.click(
+            fn=self._cache_reset_index,
+            inputs=[],
+            outputs=[cache_manage_result, cache_status_display]
+        )
+
+        cache_delete_btn.click(
+            fn=self._cache_delete,
+            inputs=[],
+            outputs=[cache_manage_result, cache_status_display]
+        )
+
         target_prompt_box = self.prompt_area[1 if is_img2img else 0]
         if target_prompt_box is None:
             try:
@@ -931,6 +1462,13 @@ class Script(scripts.Script):
                 inputs=[booru, max_pages, post_id, tags, remove_bad_tags, remove_tags, change_background, change_color, shuffle_tags, change_dash, mix_prompt, mix_amount, use_search_txt, choose_search_txt, use_remove_txt, choose_remove_txt, fringe_benefits, use_cache, api_key, user_id, save_credentials, mature_rating, sorting_order, limit_tags, max_tags, tag_prompt_input, target_prompt_box],
                 outputs=[prompt_output, target_prompt_box]
             )
+
+            # Tag Cache: 取出并设置到提示词
+            cache_next_set_btn.click(
+                fn=self._cache_get_next_and_set,
+                inputs=[cache_loop_mode, tag_prompt_input, target_prompt_box],
+                outputs=[cache_next_output, cache_status_display, target_prompt_box]
+            )
         else:
             generate_prompt_btn.click(
                 fn=self.generate_prompts_only,
@@ -938,7 +1476,14 @@ class Script(scripts.Script):
                 outputs=[prompt_output]
             )
 
-        return [enabled, tags, booru, remove_bad_tags, max_pages, change_dash, same_prompt, fringe_benefits, remove_tags, use_img2img, denoising, use_last_img, change_background, change_color, shuffle_tags, post_id, mix_prompt, mix_amount, chaos_mode, negative_mode, chaos_amount, limit_tags, max_tags, sorting_order, mature_rating, lora_folder, lora_amount, lora_min, lora_max, lora_enabled, lora_custom_weights, lora_lock_prev, use_ip, use_search_txt, use_remove_txt, choose_search_txt, choose_remove_txt, search_refresh_btn, remove_refresh_btn, crop_center, use_deepbooru, type_deepbooru, use_same_seed, use_cache, api_key, user_id, save_credentials, credentials_status, clear_credentials_btn]
+            # Tag Cache: 取出到输出框（无法设置到主提示词框）
+            cache_next_set_btn.click(
+                fn=self._cache_get_next,
+                inputs=[cache_loop_mode],
+                outputs=[cache_next_output, cache_status_display]
+            )
+
+        return [enabled, tags, booru, remove_bad_tags, max_pages, change_dash, same_prompt, fringe_benefits, remove_tags, use_img2img, denoising, use_last_img, change_background, change_color, shuffle_tags, post_id, mix_prompt, mix_amount, chaos_mode, negative_mode, chaos_amount, limit_tags, max_tags, sorting_order, mature_rating, lora_folder, lora_amount, lora_min, lora_max, lora_enabled, lora_custom_weights, lora_lock_prev, use_ip, use_search_txt, use_remove_txt, choose_search_txt, choose_remove_txt, search_refresh_btn, remove_refresh_btn, crop_center, use_deepbooru, type_deepbooru, use_same_seed, use_cache, api_key, user_id, save_credentials, credentials_status, clear_credentials_btn, use_local_cache_gen, use_local_cache_loop]
 
     def check_orientation(self, img):
         """Check if image is portrait, landscape or square"""
@@ -976,7 +1521,7 @@ class Script(scripts.Script):
                 p.prompt = f'{lora_prompt} {p.prompt}'
         return p
 
-    def before_process(self, p, enabled, tags, booru, remove_bad_tags, max_pages, change_dash, same_prompt, fringe_benefits, remove_tags, use_img2img, denoising, use_last_img, change_background, change_color, shuffle_tags, post_id, mix_prompt, mix_amount, chaos_mode, negative_mode, chaos_amount, limit_tags, max_tags, sorting_order, mature_rating, lora_folder, lora_amount, lora_min, lora_max, lora_enabled, lora_custom_weights, lora_lock_prev, use_ip, use_search_txt, use_remove_txt, choose_search_txt, choose_remove_txt, search_refresh_btn, remove_refresh_btn, crop_center, use_deepbooru, type_deepbooru, use_same_seed, use_cache, api_key, user_id, save_credentials, credentials_status, clear_credentials_btn):
+    def before_process(self, p, enabled, tags, booru, remove_bad_tags, max_pages, change_dash, same_prompt, fringe_benefits, remove_tags, use_img2img, denoising, use_last_img, change_background, change_color, shuffle_tags, post_id, mix_prompt, mix_amount, chaos_mode, negative_mode, chaos_amount, limit_tags, max_tags, sorting_order, mature_rating, lora_folder, lora_amount, lora_min, lora_max, lora_enabled, lora_custom_weights, lora_lock_prev, use_ip, use_search_txt, use_remove_txt, choose_search_txt, choose_remove_txt, search_refresh_btn, remove_refresh_btn, crop_center, use_deepbooru, type_deepbooru, use_same_seed, use_cache, api_key, user_id, save_credentials, credentials_status, clear_credentials_btn, use_local_cache_gen, use_local_cache_loop, *args):
         max_pages = int(max_pages)
         if use_cache:
             if HAS_REQUESTS_CACHE and not requests_cache.patcher.is_installed():
@@ -988,6 +1533,60 @@ class Script(scripts.Script):
                 requests_cache.uninstall_cache()
         
         if enabled:
+            # ─── 新增：本地缓存拦截逻辑 ───
+            if use_local_cache_gen:
+                print(f"[Ranbooru] 🟢 已启用本地缓存模式，跳过在线抓取。")
+                
+                # 计算本次批量生成的总数量 (Batch count * Batch size)
+                total_images = p.batch_size * p.n_iter
+                cache_prompts = []
+                # 为每一张图按顺序取出一个 Tag 串
+                for i in range(total_images):
+                    # 从缓存管理器获取下一条，并自动保存索引到硬盘
+                    tags_str, idx, total = tag_cache_manager.get_next_tags(loop=use_local_cache_loop)
+                    
+                    if tags_str is None:
+                        print(f"[Ranbooru] ⚠️ 缓存已耗尽 (Index: {idx}/{total})，停止注入。")
+                        tags_str = ""
+                    else:
+                        print(f"[Ranbooru] 📝 正在使用第 {idx} / {total} 条 Tag 数据")
+                    
+                    # 处理下划线
+                    if change_dash:
+                        tags_str = tags_str.replace("_", " ")
+                    
+                    cache_prompts.append(tags_str)
+                # 将缓存的 Tag 追加到用户输入的 Prompt 后面
+                # 如果 p.prompt 是字符串（单张），转为列表处理；如果是列表（多张），则一一对应
+                if isinstance(p.prompt, list):
+                    # 如果原 prompt 列表比我们生成的少，就扩展它
+                    if len(p.prompt) < total_images:
+                        p.prompt = p.prompt * (total_images // len(p.prompt) + 1)
+                    
+                    # 组合
+                    new_prompts = []
+                    for j in range(total_images):
+                        original = p.prompt[j] if j < len(p.prompt) else ""
+                        addition = cache_prompts[j]
+                        # 逗号分隔
+                        combined = f"{original},{addition}" if original.strip() else addition
+                        new_prompts.append(combined)
+                    p.prompt = new_prompts
+                else:
+                    # 单字符串情况
+                    new_prompts = []
+                    for j in range(total_images):
+                        original = p.prompt
+                        addition = cache_prompts[j]
+                        combined = f"{original},{addition}" if original.strip() else addition
+                        new_prompts.append(combined)
+                    p.prompt = new_prompts
+                # 处理 Lora (保留原有的 Lora 逻辑)
+                if lora_enabled:
+                    p = self.loranado(lora_enabled, lora_folder, lora_amount, lora_min, lora_max, lora_custom_weights, p, lora_lock_prev)
+                
+                # 直接结束 before_process，跳过后续所有联网代码
+                return
             gelbooru_api_key = None
             gelbooru_user_id = None
             rule34_api_key = None
@@ -1033,10 +1632,10 @@ class Script(scripts.Script):
             # Check if compatible
             check_exception(booru, {'tags': tags, 'post_id': post_id})
 
-            # Manage Bad Tags
+            # Manage Bad Tags — use global DEFAULT_BAD_TAGS
             bad_tags = []
             if remove_bad_tags:
-                bad_tags = ['mixed-language_text', 'watermark', 'text', 'english_text', 'speech_bubble', 'signature', 'artist_name', 'censored', 'bar_censor', 'translation', 'twitter_username', "twitter_logo", 'patreon_username', 'commentary_request', 'tagme', 'commentary', 'character_name', 'mosaic_censoring', 'instagram_username', 'text_focus', 'english_commentary', 'comic', 'translation_request', 'fake_text', 'translated', 'paid_reward_available', 'thought_bubble', 'multiple_views', 'silent_comic', 'out-of-frame_censoring', 'symbol-only_commentary', '3koma', '2koma', 'character_watermark', 'spoken_question_mark', 'japanese_text', 'spanish_text', 'language_text', 'fanbox_username', 'commission', 'original', 'ai_generated', 'stable_diffusion', 'tagme_(artist)', 'text_bubble', 'qr_code', 'chinese_commentary', 'korean_text', 'partial_commentary', 'chinese_text', 'copyright_request', 'heart_censor', 'censored_nipples', 'page_number', 'scan', 'fake_magazine_cover', 'korean_commentary']
+                bad_tags = list(DEFAULT_BAD_TAGS)
 
             if ',' in remove_tags:
                 bad_tags.extend(remove_tags.split(','))
@@ -1144,17 +1743,17 @@ class Script(scripts.Script):
                 else:
                     if mix_prompt:
                         temp_tags = []
-                        max_tags = 0
+                        mix_max_tags = 0
                         for _ in range(0, mix_amount):
                             if not post_id:
                                 random_mix_number = self.random_number(sorting_order, 1, len(data['post']))[0]
                             temp_tags.extend(data['post'][random_mix_number]['tags'].split(' '))
-                            max_tags = max(max_tags, len(data['post'][random_mix_number]['tags'].split(' ')))
+                            mix_max_tags = max(mix_max_tags, len(data['post'][random_mix_number]['tags'].split(' ')))
                         # distinct temp_tags
                         temp_tags = list(set(temp_tags))
                         random_post = data['post'][random_number]
-                        max_tags = min(max(len(temp_tags), 20), max_tags)
-                        random_post['tags'] = ' '.join(random.sample(temp_tags, max_tags))
+                        mix_max_tags = min(max(len(temp_tags), 20), mix_max_tags)
+                        random_post['tags'] = ' '.join(random.sample(temp_tags, mix_max_tags))
                     else:
                         try:
                             random_post = data['post'][random_number]
@@ -1300,7 +1899,7 @@ class Script(scripts.Script):
         elif lora_enabled:
             p = self.loranado(lora_enabled, lora_folder, lora_amount, lora_min, lora_max, lora_custom_weights, p, lora_lock_prev)
 
-    def postprocess(self, p, processed, enabled, tags, booru, remove_bad_tags, max_pages, change_dash, same_prompt, fringe_benefits, remove_tags, use_img2img, denoising, use_last_img, change_background, change_color, shuffle_tags, post_id, mix_prompt, mix_amount, chaos_mode, negative_mode, chaos_amount, limit_tags, max_tags, sorting_order, mature_rating, lora_folder, lora_amount, lora_min, lora_max, lora_enabled, lora_custom_weights, lora_lock_prev, use_ip, use_search_txt, use_remove_txt, choose_search_txt, choose_remove_txt, search_refresh_btn, remove_refresh_btn, crop_center, use_deepbooru, type_deepbooru, use_same_seed, use_cache, api_key, user_id, save_credentials, credentials_status, clear_credentials_btn):
+    def postprocess(self, p, processed, enabled, tags, booru, remove_bad_tags, max_pages, change_dash, same_prompt, fringe_benefits, remove_tags, use_img2img, denoising, use_last_img, change_background, change_color, shuffle_tags, post_id, mix_prompt, mix_amount, chaos_mode, negative_mode, chaos_amount, limit_tags, max_tags, sorting_order, mature_rating, lora_folder, lora_amount, lora_min, lora_max, lora_enabled, lora_custom_weights, lora_lock_prev, use_ip, use_search_txt, use_remove_txt, choose_search_txt, choose_remove_txt, search_refresh_btn, remove_refresh_btn, crop_center, use_deepbooru, type_deepbooru, use_same_seed, use_cache, api_key, user_id, save_credentials, credentials_status, clear_credentials_btn, use_local_cache_gen, use_local_cache_loop, *args):
         if use_img2img and not use_ip and enabled:
             print('Using pictures')
             if crop_center:
@@ -1341,9 +1940,9 @@ class Script(scripts.Script):
             if use_last_img:
                 processed.images.append(self.last_img[0])
         else:
-            for num, img in enumerate(self.last_img):
-                processed.images.append(img)
-                processed.infotexts.append(proc.infotexts[num + 1])
+            if hasattr(self, 'last_img') and self.last_img:
+                for img in self.last_img:
+                    processed.images.append(img)
 
     def generate_prompts_only(self, booru, max_pages, post_id, tags, remove_bad_tags, remove_tags, change_background, change_color, shuffle_tags, change_dash, mix_prompt, mix_amount, use_search_txt, choose_search_txt, use_remove_txt, choose_remove_txt, fringe_benefits, use_cache, api_key, user_id, save_credentials, mature_rating, sorting_order, limit_tags, max_tags):
         max_pages = int(max_pages)
@@ -1379,19 +1978,22 @@ class Script(scripts.Script):
                 rule34_api_key = saved_credentials.get('api_key', '')
                 rule34_user_id = saved_credentials.get('user_id', '')
 
-        booru_apis = {
+            booru_apis = {
             'gelbooru': Gelbooru(fringe_benefits, gelbooru_api_key, gelbooru_user_id),
             'rule34': Rule34(rule34_api_key, rule34_user_id),
             'safebooru': Safebooru(),
             'danbooru': Danbooru(),
+            'konachan': Konachan(),
+            'yande.re': Yandere(),
             'aibooru': AIBooru(),
             'xbooru': XBooru(),
             'e621': e621(),
         }
 
+        # Use global DEFAULT_BAD_TAGS
         bad_tags = []
         if remove_bad_tags:
-            bad_tags = ['mixed-language_text', 'watermark', 'text', 'english_text', 'speech_bubble', 'signature', 'artist_name', 'censored', 'bar_censor', 'translation', 'twitter_username', 'twitter_logo', 'patreon_username', 'commentary_request', 'tagme', 'commentary', 'character_name', 'mosaic_censoring', 'instagram_username', 'text_focus', 'english_commentary', 'comic', 'translation_request', 'fake_text', 'translated', 'paid_reward_available', 'thought_bubble', 'multiple_views', 'silent_comic', 'out-of-frame_censoring', 'symbol-only_commentary', '3koma', '2koma', 'character_watermark', 'spoken_question_mark', 'japanese_text', 'spanish_text', 'language_text', 'fanbox_username', 'commission', 'original', 'ai_generated', 'stable_diffusion', 'tagme_(artist)', 'text_bubble', 'qr_code', 'chinese_commentary', 'korean_text', 'partial_commentary', 'chinese_text', 'copyright_request', 'heart_censor', 'censored_nipples', 'page_number', 'scan', 'fake_magazine_cover', 'korean_commentary']
+            bad_tags = list(DEFAULT_BAD_TAGS)
         if ',' in remove_tags:
             bad_tags.extend(remove_tags.split(','))
         else:
@@ -1432,7 +2034,7 @@ class Script(scripts.Script):
                 selected_tags = random.choice(filtered_tags)
                 tags = f'{tags},{selected_tags}' if tags else selected_tags
 
-        add_tags = '&tags=-animated'
+                add_tags = '&tags=-animated'
         if tags:
             add_tags += '+' + tags.replace(',', '+')
             if mature_rating != 'All':
