@@ -1058,6 +1058,23 @@ def batch_fetch_tags(booru_name, tags_search, max_pages, fringe_benefits,
     return all_tags
 
 
+def _is_hires_second_pass(p):
+    """
+    尽可能识别 Hires.fix 第二段。
+    """
+    # A1111 常见标记
+    if getattr(p, "is_hr_pass", False):
+        return True
+    # Forge/部分分支第二段常是 Img2Img + 有 init_images
+    init_images = getattr(p, "init_images", None)
+    if isinstance(p, StableDiffusionProcessingImg2Img) and init_images:
+        # 如果是普通 img2img（不是 hires）也可能有 init_images，所以再加一点条件
+        # 第二段通常还会有 denoising_strength / hr 相关字段
+        if hasattr(p, "denoising_strength") or getattr(p, "enable_hr", False):
+            return True
+    return False
+
+
 class Script(scripts.Script):
     def __init__(self):
         super().__init__()
@@ -1071,6 +1088,7 @@ class Script(scripts.Script):
             ("txt2img_prompt", lambda x: self.set_prompt_area(0, x)),
             ("img2img_prompt", lambda x: self.set_prompt_area(1, x)),
         ]
+        self._local_cache_applied_jobs = set()   # 新增：记录已注入缓存的任务
 
     def create_prompt_row(self, i2i, component):
         self.prompt_row[i2i] = gr.Row()
@@ -1533,9 +1551,26 @@ class Script(scripts.Script):
                 requests_cache.uninstall_cache()
         
         if enabled:
-            # ─── 新增：本地缓存拦截逻辑 ───
             if use_local_cache_gen:
-                print(f"[Ranbooru] 🟢 已启用本地缓存模式，跳过在线抓取。")
+                # 任务ID（A1111 通常有 job_timestamp）
+                job_id = getattr(shared.state, "job_timestamp", None)
+                if job_id is None:
+                    # 兜底，避免没有 job_timestamp 时无法去重
+                    job_id = f"{getattr(p, 'seed', '')}:{getattr(p, 'n_iter', '')}:{getattr(p, 'batch_size', '')}:{id(p)}"
+                # 1) 先拦截 Hires.fix 第二段
+                if _is_hires_second_pass(p):
+                    print("[Ranbooru] 🟡 Hires.fix 第二段，跳过本地缓存取Tag（不推进索引）")
+                    return
+                # 2) 再做同任务防重（保险）
+                if job_id in self._local_cache_applied_jobs:
+                    print(f"[Ranbooru] 🟡 任务 {job_id} 已注入过缓存，跳过重复注入（不推进索引）")
+                    return
+                self._local_cache_applied_jobs.add(job_id)
+                # 可选：防止 set 无限增长
+                if len(self._local_cache_applied_jobs) > 200:
+                    self._local_cache_applied_jobs.clear()
+                print("[Ranbooru] 🟢 已启用本地缓存模式，执行一次缓存注入。")
+                # 下面保持你原来的取缓存逻辑不变...
                 
                 # 计算本次批量生成的总数量 (Batch count * Batch size)
                 total_images = p.batch_size * p.n_iter
